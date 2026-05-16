@@ -381,7 +381,7 @@ export default function App() {
         if (notifPermission === "granted") {
           new Notification(`Upcoming: ${task.title}`, {
             body: `Starting in ${offset} min at ${timeStr}`,
-            icon: "/images/logo-light.png",
+            icon: "/logo-light.png",
           });
         }
       }, delay);
@@ -493,25 +493,38 @@ User behavior analytics:
 - Today's progress: ${todayDone}/${todayTasks.length} tasks done
 - Most productive time window: ${peakHourStr}
 
-Wellness state (user-reported today):
-- Relaxation: ${relaxation}/10 (${relaxation <= 3 ? "stressed" : relaxation <= 6 ? "moderately calm" : "relaxed"})
-- Energy: ${energy}/10 (${energy <= 3 ? "exhausted" : energy <= 6 ? "moderate energy" : "energized"})
-- Coaching cue:${relaxation <= 3 || energy <= 3 ? " Low wellness — suggest lighter tasks, Pomodoro breaks, or a short rest before continuing." : relaxation >= 7 && energy >= 7 ? " Peak state — ideal for deep work, complex tasks, and ambitious scheduling." : " Moderate state — balanced scheduling with short recovery windows recommended."}
+USER WELLNESS — reported right now, adapt every response to this:
+  Relaxation ${relaxation}/10 · Energy ${energy}/10
+  → ${
+    relaxation <= 2 && energy <= 2
+      ? "CRITICAL: User is severely stressed AND exhausted. Lead with empathy. Strongly suggest stopping and resting. Do not add tasks or suggest ambitious work. Offer to clear or defer non-urgent tasks."
+    : relaxation <= 3 && energy <= 3
+      ? "VERY LOW STATE: Acknowledge difficulty first. Help trim today's list to the single most important task. Suggest a Pomodoro break. Never pile on."
+    : relaxation <= 3
+      ? "HIGH STRESS: The user is stressed. Gently acknowledge it. Suggest the easiest pending task to build momentum. Avoid complex scheduling. Keep suggestions simple and calming."
+    : energy <= 3
+      ? "LOW ENERGY: User is drained. Suggest deferring non-critical tasks to tomorrow. Keep today's focus to 1-2 items. Recommend a 10-min break before next task. Do not suggest deep work."
+    : relaxation >= 8 && energy >= 8
+      ? "PEAK STATE: User is relaxed AND energized — ideal conditions. Proactively suggest tackling the most complex or highest-priority task right now. Deep work blocks are perfect. Encourage ambitious but realistic scheduling."
+    : relaxation >= 6 && energy >= 6
+      ? "GOOD STATE: Steady coaching. Suggest balanced scheduling, one focused block at a time. Light encouragement."
+    : "MODERATE STATE: Balanced approach. Suggest Pomodoro sessions. Don't overload the schedule. One task at a time."
+  }
 
 User's tasks (use exact IDs with tools):
 ${taskLines}
 
 Your role:
-- You are a proactive coach, not just a task manager. Reference the user's actual data when giving advice.
-- When the user asks for productivity advice, use the research_productivity tool to fetch a proven technique, then explain it concisely and tie it to their situation.
-- Notice patterns: low completion rate → suggest focus strategies; many overdue tasks → suggest prioritization; heavy today → help plan the day.
-- Use tools to create/move/complete/delete tasks when asked. Confirm briefly after tool calls (1 sentence).
+- You are a proactive coach. Every suggestion must account for the user's current wellness state above — this is not optional.
+- When a user asks to add many tasks and their wellness is low, push back gently and suggest a lighter plan instead.
+- When asked for productivity advice, call research_productivity to fetch a proven technique, then apply it specifically to the user's wellness + task situation.
+- Use tools to create/move/complete/delete tasks when asked. Confirm briefly (1 sentence) after tool calls.
+- Reference wellness naturally ("given you're feeling drained…", "since you're in a great headspace…") — never robotic.
 
-Response format rules:
-- Keep responses concise: 2-3 sentences for advice, 1 sentence for task confirmations.
-- For productivity advice: technique name → one-line explanation → one concrete next step the user can take right now.
-- Never output long bullet lists — pick the single most relevant point.
-- Encouraging and direct tone. You know the user's data — reference it naturally.`;
+Response format:
+- Advice: 2-3 sentences max. Task confirmations: 1 sentence.
+- For technique advice: name → one-line what it is → one concrete first step tied to their current state.
+- No bullet walls. Pick the most relevant point and say it directly.`;
   };
 
   const sendChat = async () => {
@@ -730,7 +743,7 @@ Response format rules:
         <header className="header">
           <button className="menu-btn" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
           <div className="header-center">
-            <img src={dark ? "/images/logo-dark.png" : "/images/logo-light.png"} className="brand-logo" alt="NORA" />
+            <img src={dark ? "/logo-dark.png" : "/logo-light.png"} className="brand-logo" alt="NORA" />
           </div>
           <div className="header-right">
             <span className="header-date">{view === "day" ? prettyDate(selectedDate) : view === "month" ? monthLabel : view === "notes" ? "Notes" : "All Tasks"}</span>
@@ -1248,7 +1261,7 @@ Response format rules:
         <footer className="app-footer">
           <div className="footer-inner">
             <div className="footer-brand">
-              <img src={dark ? "/images/logo-dark.png" : "/images/logo-light.png"} className="footer-logo" alt="NORA" />
+              <img src={dark ? "/logo-dark.png" : "/logo-light.png"} className="footer-logo" alt="NORA" />
               <span className="footer-tagline">More than just a planner</span>
             </div>
             {/* ── Social / info links — add links here later ── */}
