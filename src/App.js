@@ -472,6 +472,13 @@ export default function App() {
         }).join("\n")
       : "(no tasks)";
 
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.completed).length;
+    const overdue = tasks.filter((t) => !t.completed && t.date < today).length;
+    const todayTasks = tasks.filter((t) => t.date === today);
+    const todayDone = todayTasks.filter((t) => t.completed).length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
     // Schedule intelligence — injected as context for NORA
     const todayItems = tasks.filter((t) => t.date === today && !t.completed);
     const todayHasBreak = todayItems.some((t) => t.type === "break");
@@ -494,13 +501,6 @@ export default function App() {
       upcomingDeadlines.length > 0 && `Upcoming deadlines: ${upcomingDeadlines.map((d) => `"${d.title}" on ${d.date}`).join(", ")}.`,
       overdue > 0 && `${overdue} overdue item(s) need attention.`,
     ].filter(Boolean).join(" ");
-
-    const total = tasks.length;
-    const completed = tasks.filter((t) => t.completed).length;
-    const overdue = tasks.filter((t) => !t.completed && t.date < today).length;
-    const todayTasks = tasks.filter((t) => t.date === today);
-    const todayDone = todayTasks.filter((t) => t.completed).length;
-    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
     const completedWithTime = tasks.filter((t) => t.completed && t.startHour != null);
     let peakHourStr = "not enough data yet";
