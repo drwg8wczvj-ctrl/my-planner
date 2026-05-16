@@ -5,6 +5,7 @@ import {
   Menu, Settings, User, ChevronDown, RotateCcw, List,
   Flag, Coffee, Bell,
   Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
+  ZoomIn, ZoomOut,
 } from "lucide-react";
 import "./App.css";
 
@@ -32,7 +33,7 @@ const HOURS  = Array.from({ length: 18 }, (_, i) => i + 6);
 const HOUR_H = 56; // px per hour in Apple-calendar style grid
 const LABEL_W = 60; // px for time label column
 
-const calcTop = (hour, minute) => (hour - HOURS[0]) * HOUR_H + (minute / 60) * HOUR_H;
+const calcTop = (hour, minute, hh = HOUR_H) => (hour - HOURS[0]) * hh + (minute / 60) * hh;
 
 // ── Helpers ────────────────────────────────────────────
 const uid      = () => Math.random().toString(36).slice(2);
@@ -252,6 +253,7 @@ export default function App() {
   const [view,         setView]         = useState("day");
   const [dark,         setDark]         = useLocalStorage("nora_dark", false);
   const [dragOver,     setDragOver]     = useState(null);
+  const [zoomLevel,    setZoomLevel]    = useState(1);
   const [filterGroup,      setFilterGroup]      = useState(null);
   const [filterComplexity, setFilterComplexity] = useState(null);
   const [filterType,       setFilterType]       = useState(null); // null | "task" | "deadline" | "break"
@@ -342,17 +344,20 @@ export default function App() {
     return diff > 0.1 ? "improving" : diff < -0.1 ? "declining" : "steady";
   }, [weekData]);
 
+  const zoomedH = Math.round(HOUR_H * zoomLevel);
+  const cTop    = (h, m) => calcTop(h, m, zoomedH);
+
   // Scroll to current time on day view
   useEffect(() => {
     if (view === "day" && selectedDate === today) {
       setTimeout(() => {
-        const top = calcTop(currentHour, nowObj.getMinutes());
+        const top = (currentHour - HOURS[0]) * zoomedH + (nowObj.getMinutes() / 60) * zoomedH;
         if (timelineRef.current) {
           timelineRef.current.scrollTop = Math.max(0, top - 200);
         }
       }, 120);
     }
-  }, [view, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, selectedDate, zoomedH]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (addingAt !== null) addInputRef.current?.focus(); }, [addingAt]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatLoading]);
@@ -521,6 +526,18 @@ Your role:
 - Use tools to create/move/complete/delete tasks when asked. Confirm briefly (1 sentence) after tool calls.
 - Reference wellness naturally ("given you're feeling drained…", "since you're in a great headspace…") — never robotic.
 
+Holistic planning (IMPORTANT):
+When the user asks for help planning a morning, routine, or productive block — don't just add one task. Build a full human sequence:
+1. Movement — workout, walk, or stretching (20–45 min at 6–7 AM, lighter if energy is low)
+2. Recovery — shower or freshen up (10–15 min)
+3. Nutrition — breakfast (20–30 min). Always suggest a SPECIFIC breakfast option:
+   - High energy state: eggs + avocado toast, or overnight oats with fruit — sustained fuel for deep work
+   - Low energy/stressed: smoothie (quick, no cook) or banana + peanut butter — easy, no friction
+   - Moderate: oatmeal with berries — steady glucose release
+4. Cognitive prime — the ONE most important task of the day, scheduled right after breakfast
+Create ALL of these as actual tasks using add_task. Don't just list them — add them to the planner.
+Tailor duration and intensity to the user's current wellness state.
+
 Response format:
 - Advice: 2-3 sentences max. Task confirmations: 1 sentence.
 - For technique advice: name → one-line what it is → one concrete first step tied to their current state.
@@ -596,7 +613,7 @@ Response format:
     const y    = e.clientY - rect.top;
     const x    = e.clientX - rect.left;
     if (x < LABEL_W) return null;
-    const totalMins  = Math.round((y / HOUR_H) * 60 / 5) * 5;
+    const totalMins  = Math.round((y / zoomedH) * 60 / 5) * 5;
     const clamped    = Math.max(0, Math.min(totalMins, HOURS.length * 60 - 5));
     return { hour: HOURS[0] + Math.floor(clamped / 60), minute: clamped % 60 };
   };
@@ -855,9 +872,22 @@ Response format:
                 </div>
               </div>
 
+              <div className="tl-zoom-bar">
+                <button className="tl-zoom-btn" disabled={zoomLevel <= 0.5}
+                  onClick={() => setZoomLevel((z) => Math.max(0.5, parseFloat((z - 0.25).toFixed(2))))}>
+                  <ZoomOut size={14} />
+                </button>
+                <span className="tl-zoom-label">{Math.round(zoomLevel * 100)}%</span>
+                <button className="tl-zoom-btn" disabled={zoomLevel >= 2.5}
+                  onClick={() => setZoomLevel((z) => Math.min(2.5, parseFloat((z + 0.25).toFixed(2))))}>
+                  <ZoomIn size={14} />
+                </button>
+                <button className="tl-zoom-reset" onClick={() => setZoomLevel(1)}>Reset</button>
+              </div>
+
               <div className="timeline" ref={timelineRef}>
                 <div className="tl-grid"
-                  style={{ height: HOURS.length * HOUR_H + 1 }}
+                  style={{ height: HOURS.length * zoomedH + 1 }}
                   onClick={handleTimelineClick}
                   onDragOver={handleTimelineDragOver}
                   onDragLeave={() => setDragOver(null)}
@@ -866,19 +896,19 @@ Response format:
                   {/* Hour lines and labels */}
                   {HOURS.map((hour, idx) => (
                     <React.Fragment key={hour}>
-                      <div className="tl-hour-label" style={{ top: idx * HOUR_H }}>{fmtHourLabel(hour)}</div>
-                      <div className="tl-hour-line"  style={{ top: idx * HOUR_H }} />
-                      <div className="tl-half-line"  style={{ top: idx * HOUR_H + HOUR_H / 2 }} />
+                      <div className="tl-hour-label" style={{ top: idx * zoomedH }}>{fmtHourLabel(hour)}</div>
+                      <div className="tl-hour-line"  style={{ top: idx * zoomedH }} />
+                      <div className="tl-half-line"  style={{ top: idx * zoomedH + zoomedH / 2 }} />
                     </React.Fragment>
                   ))}
-                  <div className="tl-hour-line" style={{ top: HOURS.length * HOUR_H }} />
+                  <div className="tl-hour-line" style={{ top: HOURS.length * zoomedH }} />
 
                   {/* Deadline markers */}
                   {filteredTodayTasks
                     .filter((t) => t.type === "deadline" && t.startHour != null)
                     .map((t) => (
                       <div key={t.id} className="tl-deadline"
-                        style={{ top: calcTop(t.startHour, t.startMinute ?? 0) }}
+                        style={{ top: cTop(t.startHour, t.startMinute ?? 0) }}
                         onClick={(e) => { e.stopPropagation(); setEditingTask(t); }}>
                         <div className="tl-deadline-flag"><Flag size={12} /></div>
                         <div className="tl-deadline-body">
@@ -893,8 +923,8 @@ Response format:
                   {filteredTodayTasks
                     .filter((t) => t.type === "break" && t.startHour != null)
                     .map((t) => {
-                      const top    = calcTop(t.startHour, t.startMinute ?? 0);
-                      const durPx  = t.duration ? t.duration / 60 * HOUR_H : HOUR_H / 2;
+                      const top    = cTop(t.startHour, t.startMinute ?? 0);
+                      const durPx  = t.duration ? t.duration / 60 * zoomedH : zoomedH / 2;
                       const height = Math.max(durPx, 22);
                       return (
                         <div key={t.id} className="tl-break-block"
@@ -912,8 +942,8 @@ Response format:
                   {filteredTodayTasks
                     .filter((t) => (t.type ?? "task") === "task" && t.startHour != null)
                     .map((t) => {
-                      const top    = calcTop(t.startHour, t.startMinute ?? 0);
-                      const durPx  = t.duration ? t.duration / 60 * HOUR_H : HOUR_H * 0.38;
+                      const top    = cTop(t.startHour, t.startMinute ?? 0);
+                      const durPx  = t.duration ? t.duration / 60 * zoomedH : zoomedH * 0.38;
                       const height = Math.max(durPx, 22);
                       const group  = getGroup(t.groupId);
                       const cx     = t.complexity ? COMPLEXITY[t.complexity] : null;
@@ -947,7 +977,7 @@ Response format:
                   {/* Inline add input */}
                   {addingAt !== null && typeof addingAt === "object" && (
                     <div className="tl-add-wrap"
-                      style={{ top: calcTop(addingAt.hour, addingAt.minute) }}
+                      style={{ top: cTop(addingAt.hour, addingAt.minute) }}
                       onClick={(e) => e.stopPropagation()}>
                       <input ref={addInputRef} className="slot-input" value={addingTitle}
                         onChange={(e) => setAddingTitle(e.target.value)}
@@ -959,7 +989,7 @@ Response format:
 
                   {/* Current time indicator — green line */}
                   {selectedDate === today && currentHour >= HOURS[0] && (
-                    <div className="tl-now-line" style={{ top: calcTop(currentHour, nowObj.getMinutes()) }}>
+                    <div className="tl-now-line" style={{ top: cTop(currentHour, nowObj.getMinutes()) }}>
                       <div className="tl-now-dot" />
                       <div className="tl-now-rule" />
                     </div>
@@ -1293,7 +1323,11 @@ Response format:
         </div>
         <div className="chat-input-row">
           <textarea ref={chatInputRef} className="chat-input" value={chatInput} rows={1}
-            onChange={(e) => setChatInput(e.target.value)}
+            onChange={(e) => {
+              setChatInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
             placeholder="Ask for advice, add tasks, or say 'how's my week looking?'" />
           <button className="chat-send" onClick={sendChat} disabled={chatLoading || !chatInput.trim()}>
