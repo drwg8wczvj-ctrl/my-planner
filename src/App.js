@@ -5,7 +5,6 @@ import {
   Menu, Settings, User, ChevronDown, RotateCcw, List,
   Flag, Coffee,
 } from "lucide-react";
-import openai from "./openaiClient";
 import "./App.css";
 
 // ── Constants ──────────────────────────────────────────
@@ -438,11 +437,6 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
     const uiHistory = [...messages, { role: "user", content: text }];
     setMessages(uiHistory); setChatInput(""); setChatLoading(true);
 
-    if (!process.env.REACT_APP_OPENAI_API_KEY) {
-      setMessages((m) => [...m, { role: "assistant", content: "No API key found.\n\nCreate .env.local:\nREACT_APP_OPENAI_API_KEY=sk-...\n\nRestart the server." }]);
-      setChatLoading(false); return;
-    }
-
     const toApiMsgs = (msgs) => {
       const flat = msgs.filter((m) => m.role === "user" || m.role === "assistant");
       const first = flat.findIndex((m) => m.role === "user");
@@ -455,10 +449,17 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
       let finalText = "";
 
       for (let iter = 0; iter < 5; iter++) {
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini", messages: apiMsgs, tools: AI_TOOLS,
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: apiMsgs, tools: AI_TOOLS }),
         });
-        const msg = response.choices[0].message;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error ?? `API error ${res.status}`);
+        }
+        const data = await res.json();
+        const msg = data.choices[0].message;
         apiMsgs = [...apiMsgs, msg];
         if (!msg.tool_calls || msg.tool_calls.length === 0) { finalText = msg.content ?? ""; break; }
         const toolResults = [];

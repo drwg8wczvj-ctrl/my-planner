@@ -1,8 +1,2 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.REACT_APP_OPENAI_API_KEY || "missing",
-  dangerouslyAllowBrowser: true,
-});
-
-export default openai;
+// OpenAI calls are now proxied through /api/chat (Vercel serverless function).
+// The API key lives in OPENAI_API_KEY on the server — never exposed to the browser.
