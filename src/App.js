@@ -348,7 +348,7 @@ export default function App() {
       notifTimers.current[task.id] = setTimeout(() => {
         new Notification(`Upcoming: ${task.title}`, {
           body: `Starting in ${reminderMins} min at ${fmtTime(task.startHour, task.startMinute ?? 0)}`,
-          icon: "/logo-light.png",
+          icon: "/images/logo-light.png",
         });
       }, delay);
     });
@@ -647,7 +647,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
         <header className="header">
           <button className="menu-btn" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
           <div className="header-center">
-            <img src={dark ? "/logo-dark.png" : "/logo-light.png"} className="brand-logo" alt="NORA" />
+            <img src={dark ? "/images/logo-dark.png" : "/images/logo-light.png"} className="brand-logo" alt="NORA" />
           </div>
           <div className="header-right">
             <span className="header-date">{view === "day" ? prettyDate(selectedDate) : view === "month" ? monthLabel : view === "notes" ? "Notes" : "All Tasks"}</span>
@@ -1065,7 +1065,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
         <footer className="app-footer">
           <div className="footer-inner">
             <div className="footer-brand">
-              <img src={dark ? "/logo-dark.png" : "/logo-light.png"} className="footer-logo" alt="NORA" />
+              <img src={dark ? "/images/logo-dark.png" : "/images/logo-light.png"} className="footer-logo" alt="NORA" />
               <span className="footer-tagline">More than just a planner</span>
             </div>
             {/* ── Social / info links — add links here later ── */}
