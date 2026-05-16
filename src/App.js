@@ -3,7 +3,8 @@ import {
   Plus, Check, ChevronLeft, ChevronRight, CalendarDays,
   Clock, MessageSquare, X, Send, FileText, Trash2,
   Menu, Settings, User, ChevronDown, RotateCcw, List,
-  Flag, Coffee,
+  Flag, Coffee, Bell,
+  Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import "./App.css";
 
@@ -13,6 +14,8 @@ const COMPLEXITY = {
   medium: { label: "Medium", color: "#f59e0b" },
   hard:   { label: "Hard",   color: "#ef4444" },
 };
+
+const REMINDER_PRESETS = [3, 5, 10, 15];
 
 const DEFAULT_GROUPS = [
   { id: "private", name: "Private", color: "#8b5cf6" },
@@ -118,6 +121,7 @@ const executeAiTool = (name, input, currentTasks) => {
         repeat: input.repeat ?? null, repeatEnd: null,
         completed: false, notes: input.notes ?? "",
         complexity: input.complexity ?? null, groupId: input.groupId ?? null,
+        reminderOffset: input.reminderOffset ?? null,
       };
       return { result: `Created "${task.title}" on ${task.date}`, nextTasks: [...currentTasks, task] };
     }
@@ -173,7 +177,8 @@ const AI_TOOLS = [
           repeat:      { type: "string",  enum: ["daily","weekly","monthly"], description: "Repeat frequency" },
           complexity:  { type: "string",  enum: ["easy","medium","hard"] },
           groupId:     { type: "string",  description: "private | work | custom id" },
-          notes:       { type: "string" },
+          notes:          { type: "string" },
+          reminderOffset: { type: "number", enum: [3, 5, 10, 15], description: "Minutes before task start to remind the user. Omit to use their default setting." },
         },
         required: ["title","date"],
       },
@@ -262,9 +267,10 @@ export default function App() {
   const [chatOpen,    setChatOpen]    = useState(false);
   const [chatInput,   setChatInput]   = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [inAppAlert,  setInAppAlert]  = useState(null);
   const [messages,    setMessages]    = useState([{
     role: "assistant",
-    content: "Hi! I can create tasks, move them, mark them done, or help plan your day. Just ask!",
+    content: "Hi! I'm NORA, your productivity coach. I can manage your tasks, spot patterns in your schedule, and give you evidence-based advice to get more done. What are you working on today?",
   }]);
   const chatEndRef   = useRef(null);
   const chatInputRef = useRef(null);
@@ -280,6 +286,8 @@ export default function App() {
   const [accountName,    setAccountName]    = useLocalStorage("nora_account_name", "");
   const [accountEmail,   setAccountEmail]   = useLocalStorage("nora_account_email", "");
   const [reminderMins,   setReminderMins]   = useLocalStorage("nora_reminder_mins", 5);
+  const [relaxation,     setRelaxation]     = useLocalStorage("nora_relaxation", 5);
+  const [energy,         setEnergy]         = useLocalStorage("nora_energy", 5);
   const [notifPermission, setNotifPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "denied"
   );
@@ -316,6 +324,24 @@ export default function App() {
   const doneToday  = todayTasks.filter((t) => t.completed).length;
   const pct        = totalToday > 0 ? Math.round((doneToday / totalToday) * 100) : 0;
 
+  const weekData = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const d = fmtDate(addDays(today, i - 6));
+    const dayTasks = tasks.filter((t) => t.date === d);
+    const done  = dayTasks.filter((t) => t.completed).length;
+    const total = dayTasks.length;
+    return { date: d, done, total, rate: total > 0 ? done / total : null };
+  }), [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const weekTrend = useMemo(() => {
+    const rated = weekData.filter((d) => d.rate !== null);
+    if (rated.length < 4) return "new";
+    const recent = rated.slice(-3);
+    const prior  = rated.slice(0, rated.length - 3);
+    const avg    = (arr) => arr.reduce((s, d) => s + d.rate, 0) / arr.length;
+    const diff   = avg(recent) - avg(prior);
+    return diff > 0.1 ? "improving" : diff < -0.1 ? "declining" : "steady";
+  }, [weekData]);
+
   // Scroll to current time on day view
   useEffect(() => {
     if (view === "day" && selectedDate === today) {
@@ -333,26 +359,40 @@ export default function App() {
   useEffect(() => { if (chatOpen) chatInputRef.current?.focus(); }, [chatOpen]);
   useEffect(() => { setDraft(editingTask ? { ...editingTask } : null); }, [editingTask]);
 
-  // Notification scheduling
+  // Notification scheduling — per-task reminderOffset overrides global reminderMins
   useEffect(() => {
     Object.values(notifTimers.current).forEach(clearTimeout);
     notifTimers.current = {};
-    if (notifPermission !== "granted" || !notifEnabled) return;
+    if (!notifEnabled) return;
     const now = Date.now();
     tasks.forEach((task) => {
       if (task.completed || task.startHour == null || task.date !== todayStr()) return;
+      const offset = task.reminderOffset === "none" ? null
+        : task.reminderOffset != null ? task.reminderOffset
+        : reminderMins;
+      if (offset == null) return;
       const start = new Date();
       start.setHours(task.startHour, task.startMinute ?? 0, 0, 0);
-      const delay = start.getTime() - reminderMins * 60000 - now;
+      const delay = start.getTime() - offset * 60000 - now;
       if (delay <= 0) return;
       notifTimers.current[task.id] = setTimeout(() => {
-        new Notification(`Upcoming: ${task.title}`, {
-          body: `Starting in ${reminderMins} min at ${fmtTime(task.startHour, task.startMinute ?? 0)}`,
-          icon: "/images/logo-light.png",
-        });
+        const timeStr = fmtTime(task.startHour, task.startMinute ?? 0);
+        setInAppAlert({ id: uid(), title: task.title, offset, timeStr });
+        if (notifPermission === "granted") {
+          new Notification(`Upcoming: ${task.title}`, {
+            body: `Starting in ${offset} min at ${timeStr}`,
+            icon: "/images/logo-light.png",
+          });
+        }
       }, delay);
     });
   }, [tasks, reminderMins, notifPermission, notifEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!inAppAlert) return;
+    const t = setTimeout(() => setInAppAlert(null), 8000);
+    return () => clearTimeout(t);
+  }, [inAppAlert]);
 
   const monthDays  = useMemo(() => getMonthDays(selectedDate), [selectedDate]);
   const dateObj    = new Date(selectedDate + "T00:00:00");
@@ -367,7 +407,7 @@ export default function App() {
         startHour:   isObj ? slot.hour   : null,
         startMinute: isObj ? slot.minute : null,
         duration: null, repeat: null, repeatEnd: null,
-        completed: false, notes: "", complexity: null, groupId: null,
+        completed: false, notes: "", complexity: null, groupId: null, reminderOffset: null,
       }]);
     }
     setAddingTitle(""); setAddingAt(null);
@@ -424,11 +464,54 @@ export default function App() {
             (t.complexity ? ` [${t.complexity}]` : "") + (g ? ` [${g.name}]` : "");
         }).join("\n")
       : "(no tasks)";
-    return `You are a planning assistant in the user's planner. Today: ${today}.
-Groups: ${groups.map(g=>`${g.id}="${g.name}"`).join(", ")}.
-Tasks (use exact IDs with tools):
+
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.completed).length;
+    const overdue = tasks.filter((t) => !t.completed && t.date < today).length;
+    const todayTasks = tasks.filter((t) => t.date === today);
+    const todayDone = todayTasks.filter((t) => t.completed).length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const completedWithTime = tasks.filter((t) => t.completed && t.startHour != null);
+    let peakHourStr = "not enough data yet";
+    if (completedWithTime.length >= 3) {
+      const hourCounts = {};
+      completedWithTime.forEach((t) => {
+        const bucket = Math.floor(t.startHour / 2) * 2;
+        hourCounts[bucket] = (hourCounts[bucket] || 0) + 1;
+      });
+      const peak = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
+      if (peak) peakHourStr = `${peak[0]}:00–${parseInt(peak[0]) + 2}:00`;
+    }
+
+    return `You are NORA, a proactive productivity coach embedded in the user's personal planner. Today: ${today}.
+Groups: ${groups.map((g) => `${g.id}="${g.name}"`).join(", ") || "(none)"}.
+
+User behavior analytics:
+- Total tasks: ${total} | Completed: ${completed} | Completion rate: ${completionRate}%
+- Overdue tasks: ${overdue}
+- Today's progress: ${todayDone}/${todayTasks.length} tasks done
+- Most productive time window: ${peakHourStr}
+
+Wellness state (user-reported today):
+- Relaxation: ${relaxation}/10 (${relaxation <= 3 ? "stressed" : relaxation <= 6 ? "moderately calm" : "relaxed"})
+- Energy: ${energy}/10 (${energy <= 3 ? "exhausted" : energy <= 6 ? "moderate energy" : "energized"})
+- Coaching cue:${relaxation <= 3 || energy <= 3 ? " Low wellness — suggest lighter tasks, Pomodoro breaks, or a short rest before continuing." : relaxation >= 7 && energy >= 7 ? " Peak state — ideal for deep work, complex tasks, and ambitious scheduling." : " Moderate state — balanced scheduling with short recovery windows recommended."}
+
+User's tasks (use exact IDs with tools):
 ${taskLines}
-Use tools to create/move/complete/delete tasks when the user asks. Confirm briefly after tool calls.`;
+
+Your role:
+- You are a proactive coach, not just a task manager. Reference the user's actual data when giving advice.
+- When the user asks for productivity advice, use the research_productivity tool to fetch a proven technique, then explain it concisely and tie it to their situation.
+- Notice patterns: low completion rate → suggest focus strategies; many overdue tasks → suggest prioritization; heavy today → help plan the day.
+- Use tools to create/move/complete/delete tasks when asked. Confirm briefly after tool calls (1 sentence).
+
+Response format rules:
+- Keep responses concise: 2-3 sentences for advice, 1 sentence for task confirmations.
+- For productivity advice: technique name → one-line explanation → one concrete next step the user can take right now.
+- Never output long bullet lists — pick the single most relevant point.
+- Encouraging and direct tone. You know the user's data — reference it naturally.`;
   };
 
   const sendChat = async () => {
@@ -564,7 +647,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
         </div>
 
         <nav className="sidebar-nav">
-          {[["day","Day View",<CalendarDays size={16} />],["month","Month View",<CalendarDays size={16} />],["list","All Tasks",<List size={16} />],["notes","Notes",<FileText size={16} />]].map(([v,label,icon]) => (
+          {[["day","Day View",<CalendarDays size={16} />],["month","Month View",<CalendarDays size={16} />],["list","All Tasks",<List size={16} />],["notes","Notes",<FileText size={16} />],["status","My Status",<Activity size={16} />]].map(([v,label,icon]) => (
             <button key={v} className={`snav-btn${view === v ? " active" : ""}`}
               onClick={() => { setView(v); setSidebarOpen(false); }}>
               {icon} {label}
@@ -679,7 +762,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
           )}
 
           {/* Date nav & view tabs — hidden in notes view */}
-          {view !== "notes" && <div className="controls">
+          {view !== "notes" && view !== "status" && <div className="controls">
             <div className="date-nav">
               <button className="nav-btn" onClick={() => view === "month" ? shiftMo(-1) : shiftDate(-1)}><ChevronLeft size={16} /></button>
               {view === "day"
@@ -697,7 +780,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
           </div>}
 
           {/* Filters — hidden in notes view */}
-          {view !== "notes" && <div className="filter-bar">
+          {view !== "notes" && view !== "status" && <div className="filter-bar">
             <div className="filter-section">
               <span className="filter-label">Type</span>
               <button className={`filter-pill${filterType === null ? " active" : ""}`} onClick={() => setFilterType(null)}>All</button>
@@ -1014,6 +1097,106 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
           })()}
 
           {/* ── Notes view ── */}
+          {/* ── Status view ── */}
+          {view === "status" && (() => {
+            const relaxLabel = relaxation <= 3 ? "Stressed" : relaxation <= 6 ? "Moderate" : relaxation <= 8 ? "Relaxed" : "Very relaxed";
+            const energyLabel = energy <= 3 ? "Exhausted" : energy <= 6 ? "Moderate" : energy <= 8 ? "Energized" : "Very energized";
+            const insightText = (() => {
+              if (relaxation <= 3 && energy <= 3) return "You're running on empty. Take a proper break before continuing — even 10 minutes resets focus significantly.";
+              if (relaxation <= 3) return "Stress is elevated. Try completing one small, easy task to build momentum, then step away briefly.";
+              if (energy <= 3) return `Energy is low. Focus on just your top ${Math.min(2, totalToday - doneToday)} remaining tasks today and defer the rest.`;
+              if (relaxation >= 7 && energy >= 7) return `You're in peak state${pct >= 60 ? " and already making solid progress" : ""}. This is ideal for your hardest, most important tasks.`;
+              if (pct >= 70) return "Great progress today. Keep your rhythm and avoid overloading your afternoon.";
+              if (totalToday - doneToday > 0) return `You have ${totalToday - doneToday} task${totalToday - doneToday > 1 ? "s" : ""} left today. Start with the most important one.`;
+              return "No tasks scheduled today. Open NORA chat to plan your day.";
+            })();
+            return (
+              <div className="status-view">
+                <div className="status-card">
+                  <div className="status-card-title"><Wind size={15} /> How are you feeling?</div>
+                  <div className="wellness-row">
+                    <div className="wellness-label-row">
+                      <span className="wellness-name">Relaxation</span>
+                      <span className="wellness-value">{relaxation}<span className="wellness-denom">/10</span></span>
+                    </div>
+                    <span className="wellness-desc">{relaxLabel}</span>
+                    <input type="range" className="wellness-slider" min={0} max={10} step={1}
+                      value={relaxation} onChange={(e) => setRelaxation(Number(e.target.value))} />
+                    <div className="slider-ends"><span>Stressed</span><span>Relaxed</span></div>
+                  </div>
+                  <div className="wellness-row">
+                    <div className="wellness-label-row">
+                      <span className="wellness-name">Energy</span>
+                      <span className="wellness-value energy-val">{energy}<span className="wellness-denom">/10</span></span>
+                    </div>
+                    <span className="wellness-desc">{energyLabel}</span>
+                    <input type="range" className="wellness-slider energy-slider" min={0} max={10} step={1}
+                      value={energy} onChange={(e) => setEnergy(Number(e.target.value))} />
+                    <div className="slider-ends"><span>Exhausted</span><span>Energized</span></div>
+                  </div>
+                </div>
+
+                <div className="status-card">
+                  <div className="status-card-title"><Check size={15} /> Today's Progress</div>
+                  <div className="status-stats-row">
+                    <div className="status-stat">
+                      <span className="status-stat-value">{doneToday}</span>
+                      <span className="status-stat-label">Done</span>
+                    </div>
+                    <div className="status-stat">
+                      <span className="status-stat-value">{Math.max(0, totalToday - doneToday)}</span>
+                      <span className="status-stat-label">Pending</span>
+                    </div>
+                    <div className="status-stat">
+                      <span className="status-stat-value">{pct}%</span>
+                      <span className="status-stat-label">Complete</span>
+                    </div>
+                  </div>
+                  {totalToday > 0
+                    ? <div className="status-progress-bg"><div className="status-progress-fill" style={{ width: `${pct}%` }} /></div>
+                    : <p className="status-empty-note">No tasks scheduled for today.</p>
+                  }
+                </div>
+
+                <div className="status-card">
+                  <div className="status-card-title-row">
+                    <div className="status-card-title" style={{ marginBottom: 0 }}><Activity size={15} /> This Week</div>
+                    <span className={`trend-badge trend-${weekTrend}`}>
+                      {weekTrend === "improving" ? <TrendingUp size={12} />
+                        : weekTrend === "declining" ? <TrendingDown size={12} />
+                        : <Minus size={12} />}
+                      {weekTrend === "new" ? "Getting started" : weekTrend.charAt(0).toUpperCase() + weekTrend.slice(1)}
+                    </span>
+                  </div>
+                  <div className="sparkline">
+                    {weekData.map(({ date, done, total, rate }) => {
+                      const d = new Date(date + "T00:00:00");
+                      const label = ["Su","Mo","Tu","We","Th","Fr","Sa"][d.getDay()];
+                      const isToday = date === today;
+                      const barH = rate !== null ? Math.max(5, Math.round(rate * 48)) : 5;
+                      return (
+                        <div key={date} className="spark-col">
+                          <div className="spark-bar-wrap">
+                            <div
+                              className={`spark-bar${rate === null ? " spark-empty" : ""}${isToday ? " spark-today" : ""}`}
+                              style={{ height: `${barH}px` }}
+                              title={total ? `${done}/${total} done` : "No tasks"} />
+                          </div>
+                          <span className={`spark-label${isToday ? " today" : ""}`}>{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="status-card status-insight">
+                  <div className="status-card-title"><Zap size={15} /> NORA's read on you</div>
+                  <p className="insight-text">{insightText}</p>
+                </div>
+              </div>
+            );
+          })()}
+
           {view === "notes" && (
             <div className="notes-view">
               <div className="notes-add-bar">
@@ -1084,7 +1267,7 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
         <div className="chat-header">
           <div className="chat-header-info">
             <div className="chat-avatar">AI</div>
-            <div><div className="chat-title">Planning Assistant</div><div className="chat-subtitle">Creates & moves tasks</div></div>
+            <div><div className="chat-title">NORA</div><div className="chat-subtitle">Your productivity coach</div></div>
           </div>
           <button className="chat-close" onClick={() => setChatOpen(false)}><X size={16} /></button>
         </div>
@@ -1099,12 +1282,23 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
           <textarea ref={chatInputRef} className="chat-input" value={chatInput} rows={1}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-            placeholder="e.g. Add weekly training every Monday at 7 AM" />
+            placeholder="Ask for advice, add tasks, or say 'how's my week looking?'" />
           <button className="chat-send" onClick={sendChat} disabled={chatLoading || !chatInput.trim()}>
             {chatLoading ? <span className="dot-spin" /> : <Send size={16} />}
           </button>
         </div>
       </div>
+
+      {inAppAlert && (
+        <div className="notif-toast" role="alert">
+          <Bell size={18} className="notif-toast-icon" />
+          <div className="notif-toast-text">
+            <div className="notif-toast-title">{inAppAlert.title}</div>
+            <div className="notif-toast-body">Starting in {inAppAlert.offset} min · {inAppAlert.timeStr}</div>
+          </div>
+          <button className="notif-toast-close" onClick={() => setInAppAlert(null)}><X size={14} /></button>
+        </div>
+      )}
 
       {/* Task edit modal */}
       {editingTask && draft && (
@@ -1150,6 +1344,28 @@ Use tools to create/move/complete/delete tasks when the user asks. Confirm brief
                   </select>
                 </div>
               </div>
+              {draft.startHour != null && (
+                <div className="modal-field">
+                  <label className="field-label">Reminder</label>
+                  <div className="reminder-dial">
+                    <button
+                      className={`reminder-btn none-opt${draft.reminderOffset === "none" ? " active" : ""}`}
+                      onClick={() => setDraft((d) => ({ ...d, reminderOffset: d.reminderOffset === "none" ? null : "none" }))}>
+                      None
+                    </button>
+                    {REMINDER_PRESETS.map((m) => (
+                      <button key={m}
+                        className={`reminder-btn${draft.reminderOffset === m ? " active" : ""}`}
+                        onClick={() => setDraft((d) => ({ ...d, reminderOffset: d.reminderOffset === m ? null : m }))}>
+                        {m} min
+                      </button>
+                    ))}
+                  </div>
+                  {draft.reminderOffset == null && (
+                    <span className="field-hint">Default — {reminderMins} min before (from sidebar settings)</span>
+                  )}
+                </div>
+              )}
               {(draft.type ?? "task") !== "deadline" && (
                 <div className="modal-field">
                   <label className="field-label">Duration</label>
