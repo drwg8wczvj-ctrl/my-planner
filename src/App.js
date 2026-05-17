@@ -541,6 +541,19 @@ export default function App() {
     return { insights: insights.slice(0, 4), avgRate };
   }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const deferredTasks = useMemo(() => {
+    const past = tasks.filter((t) => !t.completed && t.date < today && (t.type ?? "task") !== "break");
+    return past
+      .map((t) => {
+        const daysDeferred = Math.round(
+          (new Date(today + "T00:00:00") - new Date(t.date + "T00:00:00")) / 86400000
+        );
+        const urgency = daysDeferred >= 7 ? "high" : daysDeferred >= 3 ? "medium" : "low";
+        return { ...t, daysDeferred, urgency };
+      })
+      .sort((a, b) => b.daysDeferred - a.daysDeferred);
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const zoomedH = Math.round(HOUR_H * zoomLevel);
   const cTop    = (h, m) => calcTop(h, m, zoomedH);
 
@@ -631,6 +644,17 @@ export default function App() {
   const deleteTask = (id) => { setTasks((p) => p.filter((t) => t.id !== id)); setEditingTask(null); };
   const toggleTask = (id) => setTasks((p) => p.map((t) => t.id === id ? { ...t, completed: !t.completed } : t));
   const moveToSlot = (id, h, m) => setTasks((p) => p.map((t) => t.id === id ? { ...t, startHour: h, startMinute: m } : t));
+
+  const askNORAtoReschedule = (task) => {
+    const daysDeferred = Math.round(
+      (new Date(today + "T00:00:00") - new Date(task.date + "T00:00:00")) / 86400000
+    );
+    setChatInput(
+      `"${task.title}" has been pending for ${daysDeferred} day${daysDeferred !== 1 ? "s" : ""}. Can you find the best spot for it this week and schedule it there? Consider my current workload and energy.`
+    );
+    setChatOpen(true);
+  };
+
   const shiftDate  = (n) => setSelectedDate(fmtDate(addDays(selectedDate, n)));
   const shiftMo    = (n) => setSelectedDate(shiftMonth(selectedDate, n));
 
@@ -694,7 +718,7 @@ export default function App() {
       !todayHasBreak && todayScheduled.length >= 2 && "No breaks scheduled today.",
       maxConsecMin >= 90 && `Longest consecutive work block today: ${maxConsecMin} min — consider a break.`,
       upcomingDeadlines.length > 0 && `Upcoming deadlines: ${upcomingDeadlines.map((d) => `"${d.title}" on ${d.date}`).join(", ")}.`,
-      overdue > 0 && `${overdue} overdue item(s) need attention.`,
+      overdue > 0 && `${overdue} deferred item(s) are still active and waiting for the right moment.`,
     ].filter(Boolean).join(" ");
 
     const currentTimeStr = `${pad(nowObj.getHours())}:${pad(nowObj.getMinutes())}`;
@@ -744,7 +768,7 @@ ${taskLines}
 ━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
 Momentum:       ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg)` : ""}  — ${momentum.desc}
 Recovery state: ${recoveryState.label} — ${recoveryState.desc}
-Most avoided:   ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d overdue)` : "(none)"}
+Most avoided:   ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d deferred — still active)` : "(none)"}
 Focus peak:     ${focusPatterns ? `${focusPatterns.peak.label} (${focusPatterns.peak.range}), ${focusPatterns.peakPct}% of completions` : "not enough data"}
 Heavy days:     ${workloadForecast.filter((d) => d.level === "heavy").map((d) => d.label).join(", ") || "none"}
 Best hours:     ${adaptivePlanData ? adaptivePlanData.topHours.slice(0, 2).map((h) => fmtTime(h, 0)).join(", ") : "unknown"}
@@ -960,6 +984,38 @@ Generate a warm, interpretive reflection (NOT a stats dump):
 NEVER: list raw completion numbers without interpretation · focus primarily on failures · use clinical analytics language
 ALWAYS: interpret patterns · sound like a thoughtful observer who cares · connect behavior to outcome
 
+━━━ RESCHEDULING INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━
+
+Deferred tasks (${deferredTasks.length}):${deferredTasks.length > 0
+  ? "\n" + deferredTasks.slice(0, 5).map((t) => `  • "${t.title}" — deferred ${t.daysDeferred}d (${t.urgency} priority)`).join("\n")
+  : " (none)"}
+
+When the user or the Pending Focus card asks NORA to reschedule a deferred task:
+1. ASSESS why it may have been skipped (overloaded day, low energy, unclear scope)
+2. FIND a gap in the upcoming 7 days — prefer the user's best completion hours and low-load days
+3. MOVE the task: call update_task with the new date and a suitable startHour/startMinute
+4. MENTION any workload rebalancing: "I moved it to Thursday at 10 AM — you have breathing room there."
+5. If the task is vague or large, offer to break it into a micro-start + follow-up session
+
+Language rules — ALWAYS:
+• "pending focus" / "still active" / "deferred" / "waiting for the right moment"
+• "I've found a better home for this" / "Let's slot it in when the timing works"
+• Forward-focused: "Here's when it fits best…"
+
+Language rules — NEVER:
+• "missed" / "failed" / "overdue" / "you didn't complete"
+• Guilt, urgency framing, or productivity shame of any kind
+• Treating a deferred task as a personal shortcoming
+
+━━━ WORKLOAD REBALANCING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When the user asks to rebalance multiple deferred tasks:
+1. List the deferred tasks with their urgency
+2. Identify the lightest days in the upcoming week (from Workload Forecast)
+3. Distribute tasks across those days — highest urgency first, lighter days first
+4. Respect session length limits (≤ 90 min) and add a break after any block ≥ 90 min
+5. Confirm what moved where: "I've spread these across Tuesday, Thursday, and Friday — here's the plan."
+
 ━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Task ops: 1 warm sentence. Reference the schedule if something's worth noting.
@@ -967,6 +1023,7 @@ Coaching advice: 2–3 conversational sentences. Sound human.
 Planning: Step 5 structured format.
 Recovery-state responses: compassionate, forward-focused, no guilt.
 Weekly reflection: 4-part warm narrative format above.
+Rescheduling: forward-focused, name where things landed, no guilt language.
 Everything else: direct, brief, warm — like a trusted person, not an AI.`;
   };
 
@@ -1615,6 +1672,44 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                         <span className="recovery-advice-label">What helps:</span>
                         {recoveryState.advice}
                       </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Pending Focus (deferred tasks) ── */}
+                {deferredTasks.length > 0 && (
+                  <div className="status-card deferred-card">
+                    <div className="status-card-title"><RotateCcw size={15} /> Pending Focus</div>
+                    <p className="deferred-intro">
+                      {deferredTasks.length === 1
+                        ? "1 task is still active — not failed, just waiting for the right moment."
+                        : `${deferredTasks.length} tasks are still active — deferred, not forgotten.`}
+                    </p>
+                    <div className="deferred-list">
+                      {deferredTasks.slice(0, 4).map((t) => (
+                        <div key={t.id} className={`deferred-task-row deferred-${t.urgency}`}>
+                          <div className="deferred-task-info">
+                            <span className="deferred-task-name">{t.title}</span>
+                            <span className="deferred-task-age">{t.daysDeferred}d pending</span>
+                          </div>
+                          <button
+                            className="reschedule-btn"
+                            onClick={() => askNORAtoReschedule(t)}>
+                            <RotateCcw size={10} /> Reschedule
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {deferredTasks.length > 1 && (
+                      <button
+                        className="rebalance-all-btn"
+                        onClick={() => {
+                          const titles = deferredTasks.slice(0, 4).map((t) => `"${t.title}"`).join(", ");
+                          setChatInput(`I have ${deferredTasks.length} deferred tasks: ${titles}. Can you help me rebalance them across this week based on my current load?`);
+                          setChatOpen(true);
+                        }}>
+                        Rebalance all with NORA
+                      </button>
                     )}
                   </div>
                 )}
