@@ -6,7 +6,7 @@ import {
   Flag, Coffee, Bell,
   Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
   ZoomIn, ZoomOut,
-  Brain, Target, Lightbulb, BarChart2,
+  Brain, Target, Lightbulb, BarChart2, AlertTriangle,
 } from "lucide-react";
 import "./App.css";
 
@@ -445,6 +445,102 @@ export default function App() {
     return recs.slice(0, 3);
   }, [momentum, focusPatterns, workloadForecast, mostAvoided, energy, relaxation]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Recovery intelligence ───────────────────────────────────────
+  const recoveryState = useMemo(() => {
+    const last7      = Array.from({ length: 7 }, (_, i) => {
+      const date = fmtDate(addDays(today, i - 6));
+      const dayT = tasks.filter((t) => t.date === date && t.type !== "break");
+      const done = dayT.filter((t) => t.completed).length;
+      return { total: dayT.length, done, rate: dayT.length > 0 ? done / dayT.length : null };
+    });
+    const overdueCount = tasks.filter((t) => !t.completed && t.date < today && t.type !== "break").length;
+    const recentRated  = last7.filter((d) => d.rate !== null);
+    const recentAvg    = recentRated.length > 0 ? recentRated.reduce((s, d) => s + d.rate, 0) / recentRated.length : 1;
+    const avgLoad      = last7.reduce((s, d) => s + d.total, 0) / 7;
+    const lateNight    = tasks.filter((t) => t.completed && t.startHour != null && t.startHour >= 21).length;
+    const avoidRate    = overdueCount / Math.max(tasks.length, 1);
+
+    let score = 100;
+    if (recentRated.length > 0) score -= (1 - recentAvg) * 40;
+    score -= Math.min(28, overdueCount * 2.5);
+    score -= Math.min(18, avoidRate * 36);
+    if (lateNight >= 3) score -= 10;
+    if (avgLoad > 6)    score -= 8;
+
+    if (score >= 78) return { level: "stable",   label: "Stable",             color: "#22c55e", desc: "Output and recovery are balanced. You're in a sustainable rhythm.",                                                   advice: null };
+    if (score >= 58) return { level: "mild",     label: "Mild Overload",       color: "#f59e0b", desc: "A few signals suggest the pace is slightly unsustainable.",                                                          advice: "Trim 1–2 tasks this week and protect at least one longer break." };
+    if (score >= 38) return { level: "high",     label: "High Cognitive Load", color: "#f97316", desc: "Your schedule has consistently exceeded comfortable capacity.",                                                       advice: "Reduce daily task count by ~30%. Focus only on what genuinely moves things forward." };
+    if (score >= 18) return { level: "recovery", label: "Recovery Needed",     color: "#ef4444", desc: "Sustained pressure is reducing effectiveness. Recovery actively improves long-term output.",                         advice: "Protect the next day as near-rest. One essential task only." };
+    return              { level: "burnout",  label: "Burnout Risk",        color: "#dc2626", desc: "Patterns suggest significant cumulative exhaustion. Rest is more productive than pushing through.",                  advice: "Pause non-essential tasks entirely. Rest today. Rebuild from a lighter baseline tomorrow." };
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Adaptive plan data — learns from completion history ─────────
+  const adaptivePlanData = useMemo(() => {
+    const doneT = tasks.filter((t) => t.completed && t.startHour != null && t.type !== "break");
+    if (doneT.length < 5) return null;
+
+    const hourBuckets = {};
+    doneT.forEach((t) => { hourBuckets[t.startHour] = (hourBuckets[t.startHour] || 0) + 1; });
+    const topHours = Object.entries(hourBuckets).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h]) => parseInt(h));
+
+    const withDur = doneT.filter((t) => t.duration);
+    const avgDur  = withDur.length > 0 ? Math.round(withDur.reduce((s, t) => s + t.duration, 0) / withDur.length) : null;
+
+    const byDay = {};
+    doneT.forEach((t) => { const day = new Date(t.date + "T00:00:00").getDay(); byDay[day] = (byDay[day] || 0) + 1; });
+    const bestDayEntry = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
+    const dayNames     = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const bestDayName  = bestDayEntry ? dayNames[parseInt(bestDayEntry[0])] : null;
+
+    const hardTotal    = tasks.filter((t) => t.complexity === "hard" && t.type !== "break").length;
+    const hardDone     = tasks.filter((t) => t.complexity === "hard" && t.completed).length;
+    const hardRate     = hardTotal >= 3 ? Math.round((hardDone / hardTotal) * 100) : null;
+
+    const longFail = tasks.filter((t) => !t.completed && t.duration && t.duration > 90 && t.type !== "break").length;
+    const longAll  = tasks.filter((t) => t.duration && t.duration > 90 && t.type !== "break").length;
+    const longTasksFail = longAll >= 4 && (longFail / longAll) > 0.5;
+
+    return { topHours, avgDur, bestDayName, hardRate, longTasksFail, sampleSize: doneT.length };
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Weekly reflection — interprets what happened this week ──────
+  const weeklyReflection = useMemo(() => {
+    const last7 = Array.from({ length: 7 }, (_, i) => {
+      const date  = fmtDate(addDays(today, i - 6));
+      const d     = new Date(date + "T00:00:00");
+      const dayT  = tasks.filter((t) => t.date === date && t.type !== "break");
+      const done  = dayT.filter((t) => t.completed).length;
+      return { date, name: ["Sun","Mo","Tue","Wed","Thu","Fri","Sat"][d.getDay()], done, total: dayT.length, rate: dayT.length > 0 ? done / dayT.length : null };
+    });
+    const rated = last7.filter((d) => d.rate !== null);
+    if (rated.length < 3) return null;
+
+    const avgRate = rated.reduce((s, d) => s + d.rate, 0) / rated.length;
+    const best    = [...rated].sort((a, b) => b.rate - a.rate)[0];
+    const worst   = [...rated].sort((a, b) => a.rate - b.rate)[0];
+    const heavy   = rated.filter((d) => d.total > 5 && d.rate < 0.5);
+    const insights = [];
+
+    if (avgRate >= 0.7)       insights.push(`Strong week — ${Math.round(avgRate * 100)}% of planned work completed.`);
+    else if (avgRate >= 0.45) insights.push(`Decent week at ${Math.round(avgRate * 100)}% completion. A solid foundation to build from.`);
+    else                      insights.push(`Completion was ${Math.round(avgRate * 100)}% this week — worth reflecting on what created friction.`);
+
+    if (best && best.rate >= 0.75 && best.total > 1)
+      insights.push(`${best.name} was your strongest day (${best.done}/${best.total}) — notice what conditions made it flow.`);
+
+    if (heavy.length > 0)
+      insights.push(`Heavy-schedule days (${heavy.map((d) => d.name).join(", ")}) had lower output. Dense lists reduce completion, not improve it.`);
+
+    if (worst && worst.rate < 0.3 && worst.total > 1) {
+      const recovered = rated.find((d) => d.date > worst.date && d.rate > 0.5);
+      insights.push(recovered
+        ? `You bounced back after ${worst.name}'s difficult session — that resilience counts.`
+        : `${worst.name} was a rough day. Identifying the trigger helps design next week better.`);
+    }
+
+    return { insights: insights.slice(0, 4), avgRate };
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const zoomedH = Math.round(HOUR_H * zoomLevel);
   const cTop    = (h, m) => calcTop(h, m, zoomedH);
 
@@ -646,11 +742,15 @@ All scheduled items:
 ${taskLines}
 
 ━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
-Momentum: ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg completion)` : ""}
-→ ${momentum.desc}
-Most avoided task: ${mostAvoided ? `"${mostAvoided.task.title}" — ${mostAvoided.daysOverdue} day(s) overdue` : "(none)"}
-Peak focus window: ${focusPatterns ? `${focusPatterns.peak.label} (${focusPatterns.peak.range}), ${focusPatterns.peakPct}% of completions` : "not enough data"}
-Overloaded days ahead: ${workloadForecast.filter((d) => d.level === "heavy").map((d) => d.label).join(", ") || "none"}
+Momentum:       ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg)` : ""}  — ${momentum.desc}
+Recovery state: ${recoveryState.label} — ${recoveryState.desc}
+Most avoided:   ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d overdue)` : "(none)"}
+Focus peak:     ${focusPatterns ? `${focusPatterns.peak.label} (${focusPatterns.peak.range}), ${focusPatterns.peakPct}% of completions` : "not enough data"}
+Heavy days:     ${workloadForecast.filter((d) => d.level === "heavy").map((d) => d.label).join(", ") || "none"}
+Best hours:     ${adaptivePlanData ? adaptivePlanData.topHours.slice(0, 2).map((h) => fmtTime(h, 0)).join(", ") : "unknown"}
+Avg session:    ${adaptivePlanData?.avgDur ? `~${adaptivePlanData.avgDur} min (from successful completions)` : "unknown"}
+Best day:       ${adaptivePlanData?.bestDayName ?? "unknown"}
+Long tasks:     ${adaptivePlanData?.longTasksFail ? "often fail — split sessions >90 min automatically" : "completing fine"}
 
 ━━━ HOW YOU ARE FEELING RIGHT NOW ━━━━━━━━━━━━━━━━━━━━
 
@@ -792,11 +892,81 @@ Micro-start rules:
 • Never add guilt. Add forward motion.
 • Offer to add a micro-task to the calendar if they want.
 
+━━━ RECOVERY INTELLIGENCE — RESPONSE RULES ━━━━━━━━━━━━━━━━━━━━━
+
+Current recovery state: ${recoveryState.label}
+${recoveryState.advice ? `→ Guidance: ${recoveryState.advice}` : "→ User is stable. Standard scheduling applies."}
+
+Adapt NORA's tone and planning density to the recovery state:
+• Stable:             Full scheduling. Ambitious plans welcome.
+• Mild Overload:      Reduce session count. Add more breaks. Softer tone.
+• High Cognitive Load: Cut daily task count by ~30–40%. One essential task per day emphasis. Gentle framing.
+• Recovery Needed:    Max 2 tasks per day. No multi-hour sessions. Protecting rest is top priority.
+• Burnout Risk:       Never add tasks. Only help reorganize and remove. Compassionate, non-urgent tone only.
+
+NORA must NEVER:
+• Frame missed tasks as failures or use language like "you only completed X%"
+• Push urgency when recovery state is elevated
+• Shame or guilt-trip on low-output patterns
+
+NORA SHOULD instead:
+• Normalize difficulty ("That was a heavy stretch — completely understandable.")
+• Focus forward, not on what was missed
+• Frame recovery as a productivity strategy, not a break from productivity
+
+━━━ ADAPTIVE SCHEDULING ENGINE ━━━━━━━━━━━━━━━━━━━━━━━
+${adaptivePlanData ? `
+Behavioral profile (learned from ${adaptivePlanData.sampleSize} completed tasks):
+• Best completion hours: ${adaptivePlanData.topHours.slice(0, 2).map((h) => fmtTime(h, 0)).join(", ")} — schedule demanding work here
+• Successful session avg: ~${adaptivePlanData.avgDur ?? 60} min — avoid exceeding without explicit request
+• Most productive day: ${adaptivePlanData.bestDayName ?? "unknown"} — weight important tasks here
+• Hard task completion: ${adaptivePlanData.hardRate != null ? `${adaptivePlanData.hardRate}%` : "unknown"}${adaptivePlanData.hardRate != null && adaptivePlanData.hardRate < 50 ? " — break hard tasks into easier sub-steps" : ""}
+• ${adaptivePlanData.longTasksFail ? "Long sessions (>90 min) fail often — automatically cap new sessions at 60–75 min" : "Session length tolerance is healthy"}
+` : "Not enough behavioral data yet — use defaults (60 min sessions, 9 AM and 2 PM start times)."}
+Silent adaptation rules (apply without explaining to user):
+1. Schedule new tasks at the user's best completion hours when possible
+2. If long sessions fail → cap blocks at 60 min, add a break between them
+3. If hard tasks have low completion → default new tasks to easy/medium complexity
+4. If recovery state is elevated → automatically reduce session count in any plan
+
+━━━ TASK PURPOSE ENGINE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When creating tasks, append a 1-sentence purpose to the notes field.
+Purpose should explain WHY this task matters RIGHT NOW, not just what it is.
+
+Examples:
+• "Finishing this today removes pressure from the rest of your week."
+• "Early preparation improves retention significantly before the exam."
+• "This session builds the foundation everything else depends on."
+• "Completing this now protects your free weekend."
+• "Getting this done first prevents it from compounding into a larger problem later."
+
+Generate purpose based on:
+- Position in the plan (early = foundation building, late = consolidation)
+- Proximity to upcoming deadlines
+- Whether it relieves future workload
+- The user's current recovery state (stressed users need calming purpose framing)
+
+━━━ WEEKLY REFLECTION MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Activate when user says: weekly review · how did I do · weekly reflection · what worked · this week
+
+Generate a warm, interpretive reflection (NOT a stats dump):
+1. Lead with what genuinely went well — even small wins deserve recognition
+2. Identify what created friction — name the pattern, not the person
+3. Suggest ONE structural change for next week (specific, not vague)
+4. Close with forward momentum: "Here's what I'd prioritize Monday..."
+
+NEVER: list raw completion numbers without interpretation · focus primarily on failures · use clinical analytics language
+ALWAYS: interpret patterns · sound like a thoughtful observer who cares · connect behavior to outcome
+
 ━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Task ops: 1 warm sentence. Reference the schedule if something's worth noting.
 Coaching advice: 2–3 conversational sentences. Sound human.
 Planning: Step 5 structured format.
+Recovery-state responses: compassionate, forward-focused, no guilt.
+Weekly reflection: 4-part warm narrative format above.
 Everything else: direct, brief, warm — like a trusted person, not an AI.`;
   };
 
@@ -1263,8 +1433,10 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
           {/* ── Month view ── */}
           {view === "month" && (
             <div className="month-wrap">
-              <div className="month-grid">
+              <div className="month-weekday-row">
                 {WEEKDAY_SHORT.map((d) => <div key={d} className="month-weekday">{d}</div>)}
+              </div>
+              <div className="month-grid">
                 {monthDays.map(({ date, inMonth }) => {
                   const dayTasks = getTasksForDate(date).filter((t) => {
                     if (filterGroup      && t.groupId    !== filterGroup)      return false;
@@ -1429,6 +1601,24 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                   )}
                 </div>
 
+                {/* ── Recovery state ── */}
+                {recoveryState.level !== "stable" && (
+                  <div className={`status-card recovery-card recovery-${recoveryState.level}`}>
+                    <div className="status-card-title"><AlertTriangle size={15} /> Recovery Signal</div>
+                    <div className="recovery-level-row">
+                      <span className="recovery-dot" style={{ background: recoveryState.color }} />
+                      <span className="recovery-label" style={{ color: recoveryState.color }}>{recoveryState.label}</span>
+                    </div>
+                    <p className="recovery-desc">{recoveryState.desc}</p>
+                    {recoveryState.advice && (
+                      <div className="recovery-advice">
+                        <span className="recovery-advice-label">What helps:</span>
+                        {recoveryState.advice}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* ── Workload forecast ── */}
                 <div className="status-card">
                   <div className="status-card-title"><BarChart2 size={15} /> Week Ahead</div>
@@ -1566,6 +1756,18 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                     })}
                   </div>
                 </div>
+
+                {/* ── Weekly reflection ── */}
+                {weeklyReflection && (
+                  <div className="status-card reflection-card">
+                    <div className="status-card-title"><RotateCcw size={15} /> This Week's Patterns</div>
+                    <ul className="reflection-list">
+                      {weeklyReflection.insights.map((ins, i) => (
+                        <li key={i} className={`reflection-item${i === 0 ? " reflection-lead" : ""}`}>{ins}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* ── Adaptive recommendations ── */}
                 {adaptiveRecs.length > 0 && (

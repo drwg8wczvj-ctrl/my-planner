@@ -706,14 +706,17 @@
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
-.month-weekday {
-  background: var(--month-wkday-bg);
+.month-weekday-row {
+  display: grid; grid-template-columns: repeat(7, 1fr);
   border-bottom: 1px solid var(--border);
+  background: var(--month-wkday-bg);
+}
+.month-weekday {
   padding: 10px 0; text-align: center;
   font-size: 11px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .08em; color: var(--text-muted);
 }
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 
 .month-day {
   min-height: 100px; padding: 8px 8px 6px;
@@ -1786,3 +1789,58 @@
   padding-left: 18px; position: relative;
 }
 .reco-item::before { content: "•"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+
+/* ── Recovery card ───────────────────────────────────────── */
+.recovery-card { border-left: 3px solid; }
+.recovery-card .status-card-title svg { flex-shrink: 0; }
+.recovery-mild     { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+.recovery-high     { border-color: #f97316; background: rgba(249,115,22,.06); }
+.recovery-recovery { border-color: #ef4444; background: rgba(239,68,68,.06); }
+.recovery-burnout  { border-color: #dc2626; background: rgba(220,38,38,.07); }
+.dark .recovery-mild     { background: rgba(245,158,11,.08); }
+.dark .recovery-high     { background: rgba(249,115,22,.08); }
+.dark .recovery-recovery { background: rgba(239,68,68,.08); }
+.dark .recovery-burnout  { background: rgba(220,38,38,.10); }
+.recovery-level-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.recovery-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.recovery-label {
+  font-size: 18px; font-weight: 800; letter-spacing: -.01em;
+}
+.recovery-desc {
+  font-size: 13px; color: var(--text-muted); line-height: 1.55;
+  margin: 0 0 12px;
+}
+.recovery-advice {
+  font-size: 12px; color: var(--text); line-height: 1.5;
+  padding: 10px 12px; border-radius: 8px;
+  background: rgba(0,0,0,.04);
+  border: 1px solid var(--border);
+}
+.dark .recovery-advice { background: rgba(255,255,255,.04); }
+.recovery-advice-label {
+  display: inline; font-weight: 700; margin-right: 6px;
+  color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+}
+
+/* ── Weekly reflection ───────────────────────────────────── */
+.reflection-card { border-color: rgba(124,58,237,.18); }
+.reflection-list {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.reflection-item {
+  font-size: 13px; color: var(--text-muted); line-height: 1.55;
+  padding-left: 18px; position: relative;
+}
+.reflection-item::before {
+  content: "–"; position: absolute; left: 0;
+  color: var(--accent); font-weight: 700;
+}
+.reflection-item.reflection-lead {
+  font-size: 14px; color: var(--text); font-weight: 600;
+}
+.reflection-item.reflection-lead::before { content: "★"; font-size: 11px; top: 1px; }
