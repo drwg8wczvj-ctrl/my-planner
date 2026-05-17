@@ -706,17 +706,14 @@
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-.month-weekday-row {
-  display: grid; grid-template-columns: repeat(7, 1fr);
-  border-bottom: 1px solid var(--border);
-  background: var(--month-wkday-bg);
-}
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .month-weekday {
+  background: var(--month-wkday-bg);
+  border-bottom: 1px solid var(--border);
   padding: 10px 0; text-align: center;
   font-size: 11px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .08em; color: var(--text-muted);
 }
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 
 .month-day {
   min-height: 100px; padding: 8px 8px 6px;
@@ -1686,3 +1683,106 @@
   .filter-bar { gap: 8px; }
   .app-name   { font-size: 22px; }
 }
+
+/* ── Momentum card ───────────────────────────────────────────── */
+.momentum-card { position: relative; overflow: hidden; }
+.momentum-state-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.momentum-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+  box-shadow: 0 0 10px currentColor;
+}
+.momentum-label {
+  font-size: 22px; font-weight: 800; line-height: 1; letter-spacing: -.01em;
+}
+.momentum-desc {
+  font-size: 13px; color: var(--text-muted); line-height: 1.55;
+  margin: 0 0 14px;
+}
+.momentum-score-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.momentum-score-bg {
+  flex: 1; height: 6px; border-radius: 3px;
+  background: var(--border); overflow: hidden;
+}
+.momentum-score-fill {
+  height: 100%; border-radius: 3px; transition: width .5s ease;
+}
+.momentum-score-pct {
+  font-size: 11px; color: var(--text-muted); white-space: nowrap; min-width: 44px; text-align: right;
+}
+
+/* ── Workload forecast ───────────────────────────────────── */
+.workload-row {
+  display: flex; gap: 6px; align-items: flex-end; margin-bottom: 12px;
+}
+.workload-day {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.wl-bar-wrap {
+  width: 100%; height: 44px; border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow: hidden; position: relative; background: var(--surface-2);
+}
+.wl-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  border-radius: 4px 4px 0 0; transition: height .35s ease;
+}
+.wl-free     { }
+.wl-free     .wl-bar { background: var(--border);  opacity: 1; }
+.wl-light    .wl-bar { background: #22c55e; opacity: 0.65; }
+.wl-moderate .wl-bar { background: #f59e0b; opacity: 0.75; }
+.wl-heavy    .wl-bar { background: #ef4444; opacity: 0.80; }
+.wl-today .wl-bar-wrap { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.wl-label { font-size: 10px; color: var(--text-muted); font-weight: 600; }
+.wl-today .wl-label { color: var(--accent); font-weight: 700; }
+.workload-note { font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+
+/* ── Most avoided task / micro-start ────────────────────── */
+.avoided-card { border-color: rgba(245,158,11,.3); }
+.avoided-task-name {
+  font-size: 15px; font-weight: 700; color: var(--text);
+  margin-bottom: 4px; line-height: 1.3;
+}
+.avoided-meta {
+  font-size: 11px; color: #f59e0b; font-weight: 600; margin-bottom: 14px;
+}
+.micro-start-label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px;
+}
+.micro-start-label svg { color: var(--accent); }
+.micro-start-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.micro-start-item {
+  font-size: 13px; color: var(--text); line-height: 1.4;
+  padding: 9px 12px 9px 28px; border-radius: 8px; position: relative;
+  background: var(--surface-2); border: 1px solid var(--border);
+  cursor: default; transition: background var(--tr), color var(--tr), border-color var(--tr);
+}
+.micro-start-item::before { content: "→"; position: absolute; left: 10px; color: var(--accent); font-weight: 700; }
+.micro-start-item:hover { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
+
+/* ── Focus pattern bands ─────────────────────────────────── */
+.focus-bands { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.focus-band { display: flex; align-items: center; gap: 10px; }
+.focus-band-label { font-size: 12px; color: var(--text-muted); width: 76px; flex-shrink: 0; }
+.focus-band-bar-wrap {
+  flex: 1; height: 8px; border-radius: 4px; background: var(--border); overflow: hidden;
+}
+.focus-band-fill { height: 8px; border-radius: 4px; background: var(--border); transition: width .4s ease; }
+.focus-peak .focus-band-fill { background: var(--grad); }
+.focus-peak .focus-band-label { color: var(--text); font-weight: 700; }
+.focus-band-pct { font-size: 11px; color: var(--text-muted); width: 28px; text-align: right; flex-shrink: 0; }
+.focus-peak-note { font-size: 12px; color: var(--text-muted); margin: 0; }
+
+/* ── Adaptive recommendations ───────────────────────────── */
+.reco-card { background: var(--grad-subtle); border-color: rgba(124,58,237,.2); }
+.reco-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.reco-item {
+  font-size: 13px; color: var(--text); line-height: 1.55;
+  padding-left: 18px; position: relative;
+}
+.reco-item::before { content: "•"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }

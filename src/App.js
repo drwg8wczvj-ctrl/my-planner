@@ -6,6 +6,7 @@ import {
   Flag, Coffee, Bell,
   Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
   ZoomIn, ZoomOut,
+  Brain, Target, Lightbulb, BarChart2,
 } from "lucide-react";
 import "./App.css";
 
@@ -115,6 +116,20 @@ const isRepeatMatch = (task, date) => {
 const executeAiTool = (name, input, currentTasks) => {
   switch (name) {
     case "add_task": {
+      if (input.startHour != null) {
+        const now = new Date();
+        const todayDate = fmtDate(now);
+        if (input.date === todayDate) {
+          const inputMins = input.startHour * 60 + (input.startMinute ?? 0);
+          const nowMins   = now.getHours() * 60 + now.getMinutes();
+          if (inputMins <= nowMins) {
+            return {
+              result: `Rejected: "${input.title}" at ${fmtTime(input.startHour, input.startMinute ?? 0)} is in the past (now ${pad(now.getHours())}:${pad(now.getMinutes())}). Choose a later time and try again.`,
+              nextTasks: currentTasks,
+            };
+          }
+        }
+      }
       const task = {
         id: uid(), title: input.title, date: input.date,
         type: input.type ?? "task",
@@ -324,8 +339,9 @@ export default function App() {
     if (filterComplexity && t.complexity    !== filterComplexity) return false;
     return true;
   });
-  const totalToday = todayTasks.length;
-  const doneToday  = todayTasks.filter((t) => t.completed).length;
+  const progressTasks = todayTasks.filter((t) => (t.type ?? "task") !== "break");
+  const totalToday = progressTasks.length;
+  const doneToday  = progressTasks.filter((t) => t.completed).length;
   const pct        = totalToday > 0 ? Math.round((doneToday / totalToday) * 100) : 0;
 
   const weekData = useMemo(() => Array.from({ length: 7 }, (_, i) => {
@@ -345,6 +361,89 @@ export default function App() {
     const diff   = avg(recent) - avg(prior);
     return diff > 0.1 ? "improving" : diff < -0.1 ? "declining" : "steady";
   }, [weekData]);
+
+  // ── Behavioral intelligence ─────────────────────────────────────
+
+  const momentum = useMemo(() => {
+    const days = Array.from({ length: 14 }, (_, i) => {
+      const date = fmtDate(addDays(today, i - 13));
+      const dayT = tasks.filter((t) => t.date === date && t.type !== "break");
+      const done = dayT.filter((t) => t.completed).length;
+      return { date, total: dayT.length, done, rate: dayT.length > 0 ? done / dayT.length : null };
+    });
+    const rated = days.filter((d) => d.rate !== null);
+    if (rated.length < 2) return { state: "new", label: "Just Starting", desc: "Build a few days of history and NORA will start recognising patterns.", color: "var(--accent)", score: null };
+    const recent = rated.slice(-Math.min(3, rated.length));
+    const prior  = rated.slice(0, rated.length - recent.length);
+    const avg    = (arr) => arr.length > 0 ? arr.reduce((s, d) => s + d.rate, 0) / arr.length : null;
+    const rAvg   = avg(recent);
+    const pAvg   = avg(prior) ?? rAvg;
+    const trend  = rAvg - pAvg;
+    const avgLoad = recent.reduce((s, d) => s + d.total, 0) / recent.length;
+    if (rAvg < 0.40 && avgLoad > 4)   return { state: "overloaded", label: "Overloaded",      desc: "Schedule exceeds your current capacity. Remove or defer tasks — consistency beats volume.", color: "#ef4444", score: rAvg };
+    if (rAvg >= 0.65 && trend >  0.08) return { state: "rising",    label: "Rising",           desc: "Momentum is building. Protect this energy and keep sessions predictable.",                color: "#22c55e", score: rAvg };
+    if (rAvg >= 0.55 && Math.abs(trend) <= 0.12) return { state: "stable", label: "Stable",    desc: "Consistent and reliable. Steady momentum is more sustainable than burst performance.",   color: "#3b82f6", score: rAvg };
+    if (trend < -0.20 && pAvg > 0.55) return { state: "recovery",   label: "Recovery Phase",   desc: "You slipped after a strong stretch — that's natural. A lighter day resets the system.",  color: "#f59e0b", score: rAvg };
+    if (trend >  0.12)                 return { state: "rising",     label: "Recovering",       desc: "Turning around. Each completed task rebuilds the pattern.",                              color: "#22c55e", score: rAvg };
+    return { state: "unstable", label: "Unstable", desc: "Inconsistent pattern. Fewer, smaller, well-timed tasks work better than an ambitious list.", color: "#f59e0b", score: rAvg };
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const workloadForecast = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const date  = fmtDate(addDays(today, i));
+    const dayT  = tasks.filter((t) => t.date === date && t.type !== "break");
+    const mins  = dayT.filter((t) => t.duration).reduce((s, t) => s + t.duration, 0);
+    const load  = dayT.length;
+    const d     = new Date(date + "T00:00:00");
+    const level = load > 6 || mins > 360 ? "heavy" : load > 3 || mins > 180 ? "moderate" : load > 0 ? "light" : "free";
+    return {
+      date, load, mins, level,
+      label:   i === 0 ? "Today" : i === 1 ? "Tmr" : ["Su","Mo","Tu","We","Th","Fr","Sa"][d.getDay()],
+      isToday: i === 0,
+    };
+  }), [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const focusPatterns = useMemo(() => {
+    const doneT = tasks.filter((t) => t.completed && t.startHour != null && t.type !== "break");
+    if (doneT.length < 4) return null;
+    const bands = [
+      { key: "morning",   label: "Morning",   range: "6–11 AM", hours: [6,7,8,9,10,11],       count: 0 },
+      { key: "afternoon", label: "Afternoon", range: "12–5 PM", hours: [12,13,14,15,16,17],    count: 0 },
+      { key: "evening",   label: "Evening",   range: "6–10 PM", hours: [18,19,20,21,22],       count: 0 },
+    ];
+    doneT.forEach((t) => { const b = bands.find((b) => b.hours.includes(t.startHour)); if (b) b.count++; });
+    const total = bands.reduce((s, b) => s + b.count, 0);
+    if (total === 0) return null;
+    const peak = [...bands].sort((a, b) => b.count - a.count)[0];
+    return { bands, peak, peakPct: Math.round((peak.count / total) * 100), total };
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mostAvoided = useMemo(() => {
+    const overdue = tasks.filter((t) => !t.completed && t.date < today && t.type === "task");
+    if (!overdue.length) return null;
+    const task = [...overdue].sort((a, b) => a.date.localeCompare(b.date))[0];
+    const daysOverdue = Math.floor((new Date(today + "T00:00:00") - new Date(task.date + "T00:00:00")) / 86400000);
+    const tl = task.title.toLowerCase();
+    const microStarts =
+      /read|study|learn|review/.test(tl)         ? ["Open the material and read just 1 page.", "Set a 5-min timer and start anywhere.", "Write down 3 key things you need to understand."] :
+      /write|essay|report|draft/.test(tl)        ? ["Open a blank doc and type one sentence.", "Bullet your 3 main ideas — nothing else.", "Write only the title and intro paragraph."] :
+      /code|build|implement|fix|debug/.test(tl)  ? ["Open the file and just read it once.", "Write a comment describing what needs to happen.", "Make one small change and run it."] :
+      /email|message|call|reply/.test(tl)        ? ["Open it and read it — don't respond yet.", "Type just the first line of a reply.", "Draft a 2-sentence response and save it."] :
+      [`Spend 5 minutes on "${task.title}" — that's it.`, "Set a timer and begin. Anything counts.", "Do the smallest possible piece right now."];
+    return { task, daysOverdue, microStarts, count: overdue.length };
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const adaptiveRecs = useMemo(() => {
+    const recs = [];
+    if (momentum.state === "overloaded")                         recs.push("Cut your task list by ~30% this week — volume is the problem, not effort.");
+    if (focusPatterns?.peakPct >= 35)                            recs.push(`${focusPatterns.peakPct}% of completions happen in the ${focusPatterns.peak.label.toLowerCase()} (${focusPatterns.peak.range}). Guard that window.`);
+    const heavyDays = workloadForecast.filter((d) => d.level === "heavy");
+    if (heavyDays.length > 0)                                    recs.push(`${heavyDays.map((d) => d.label).join(", ")} ${heavyDays.length === 1 ? "looks" : "look"} overloaded — move some tasks to lighter days.`);
+    if (mostAvoided?.daysOverdue >= 3)                           recs.push(`"${mostAvoided.task.title}" has been waiting ${mostAvoided.daysOverdue} days. A 5-minute start breaks the avoidance loop.`);
+    if (momentum.state === "stable")                             recs.push("Consistent rhythm detected. Don't add tasks on already-full days — protect what's working.");
+    if (energy <= 3)                                             recs.push("Low energy: 25-min focused blocks beat long exhausted sessions every single time.");
+    if (relaxation <= 3)                                         recs.push("Stress is elevated. One completed task restores more calm than five half-started ones.");
+    return recs.slice(0, 3);
+  }, [momentum, focusPatterns, workloadForecast, mostAvoided, energy, relaxation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const zoomedH = Math.round(HOUR_H * zoomLevel);
   const cTop    = (h, m) => calcTop(h, m, zoomedH);
@@ -502,6 +601,15 @@ export default function App() {
       overdue > 0 && `${overdue} overdue item(s) need attention.`,
     ].filter(Boolean).join(" ");
 
+    const currentTimeStr = `${pad(nowObj.getHours())}:${pad(nowObj.getMinutes())}`;
+    const blockedIntervals = todayScheduled
+      .filter((t) => t.type !== "break" && t.duration != null)
+      .map((t) => {
+        const endMins = t.startHour * 60 + (t.startMinute ?? 0) + t.duration;
+        return `${fmtTime(t.startHour, t.startMinute ?? 0)}–${fmtTime(Math.floor(endMins / 60), endMins % 60)} "${t.title}"`;
+      });
+    const blockedStr = blockedIntervals.length > 0 ? blockedIntervals.join(" | ") : "(none)";
+
     const completedWithTime = tasks.filter((t) => t.completed && t.startHour != null);
     let peakHourStr = "not enough data yet";
     if (completedWithTime.length >= 3) {
@@ -527,12 +635,22 @@ Speak like a trusted human assistant, not a productivity app:
 
 ━━━ SCHEDULE AT A GLANCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Current time: ${currentTimeStr}. Do not schedule anything on ${today} at or before this time.
+Today's occupied windows: ${blockedStr} — no break or new task may overlap these.
+
 Today (${today}): ${todayItems.length} item(s), ${todayDone}/${todayTasks.length} complete. ${scheduleNotes || "Schedule looks balanced."}
 Overall: ${completionRate}% completion rate across ${total} tasks. Peak productive window: ${peakHourStr}.
 Groups: ${groups.map((g) => `${g.id}="${g.name}"`).join(", ") || "(none)"}.
 
 All scheduled items:
 ${taskLines}
+
+━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
+Momentum: ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg completion)` : ""}
+→ ${momentum.desc}
+Most avoided task: ${mostAvoided ? `"${mostAvoided.task.title}" — ${mostAvoided.daysOverdue} day(s) overdue` : "(none)"}
+Peak focus window: ${focusPatterns ? `${focusPatterns.peak.label} (${focusPatterns.peak.range}), ${focusPatterns.peakPct}% of completions` : "not enough data"}
+Overloaded days ahead: ${workloadForecast.filter((d) => d.level === "heavy").map((d) => d.label).join(", ") || "none"}
 
 ━━━ HOW YOU ARE FEELING RIGHT NOW ━━━━━━━━━━━━━━━━━━━━
 
@@ -647,6 +765,32 @@ Tailor intensity and duration to current wellness state.
 ✗ Sessions longer than 90 min without a break task after them
 ✗ Sound like a chatbot — no "Certainly!", no mechanical lists, no robotic phrasing
 ✗ Ignore what's already in the schedule — always read and reference it
+✗ Schedule any item at or before ${currentTimeStr} on today (${today}) — it's already in the past
+✗ Place a break or task during a window already occupied by another item (check occupied windows above)
+
+━━━ HIDDEN TASK RADAR ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Whenever you detect a goal, event, or challenge without adequate preparation tasks, create them immediately — even if the user didn't explicitly ask.
+
+Triggers:
+• User mentions any future goal, event, exam, project, or deadline
+• Schedule has a deadline with no work sessions on the days before it
+• Task implies sub-steps that don't exist yet (e.g. "submit report" with no drafting sessions)
+
+Action: Create the hidden preparation tasks, then briefly explain what you added and why.
+
+━━━ MICRO-START MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Activate when:
+• User says they're stuck, overwhelmed, procrastinating, or can't begin
+• A task has been avoided 3+ days (check behavioral intelligence above)
+• Momentum is Unstable or Overloaded
+
+Micro-start rules:
+• Suggest 3 starting actions — each under 5–15 minutes
+• Frame as tiny steps, not tasks: "Just open the file and read it." not "Complete Step 1."
+• Never add guilt. Add forward motion.
+• Offer to add a micro-task to the calendar if they want.
 
 ━━━ OUTPUT FORMAT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1119,10 +1263,8 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
           {/* ── Month view ── */}
           {view === "month" && (
             <div className="month-wrap">
-              <div className="month-weekday-row">
-                {WEEKDAY_SHORT.map((d) => <div key={d} className="month-weekday">{d}</div>)}
-              </div>
               <div className="month-grid">
+                {WEEKDAY_SHORT.map((d) => <div key={d} className="month-weekday">{d}</div>)}
                 {monthDays.map(({ date, inMonth }) => {
                   const dayTasks = getTasksForDate(date).filter((t) => {
                     if (filterGroup      && t.groupId    !== filterGroup)      return false;
@@ -1254,19 +1396,61 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
           {/* ── Notes view ── */}
           {/* ── Status view ── */}
           {view === "status" && (() => {
-            const relaxLabel = relaxation <= 3 ? "Stressed" : relaxation <= 6 ? "Moderate" : relaxation <= 8 ? "Relaxed" : "Very relaxed";
-            const energyLabel = energy <= 3 ? "Exhausted" : energy <= 6 ? "Moderate" : energy <= 8 ? "Energized" : "Very energized";
+            const relaxLabel  = relaxation <= 3 ? "Stressed" : relaxation <= 6 ? "Moderate" : relaxation <= 8 ? "Relaxed" : "Very relaxed";
+            const energyLabel = energy     <= 3 ? "Exhausted" : energy <= 6 ? "Moderate" : energy <= 8 ? "Energized" : "Very energized";
             const insightText = (() => {
               if (relaxation <= 3 && energy <= 3) return "You're running on empty. Take a proper break before continuing — even 10 minutes resets focus significantly.";
-              if (relaxation <= 3) return "Stress is elevated. Try completing one small, easy task to build momentum, then step away briefly.";
-              if (energy <= 3) return `Energy is low. Focus on just your top ${Math.min(2, totalToday - doneToday)} remaining tasks today and defer the rest.`;
+              if (relaxation <= 3)  return "Stress is elevated. Try completing one small, easy task to build momentum, then step away briefly.";
+              if (energy <= 3)      return `Energy is low. Focus on just your top ${Math.min(2, totalToday - doneToday)} remaining tasks today and defer the rest.`;
               if (relaxation >= 7 && energy >= 7) return `You're in peak state${pct >= 60 ? " and already making solid progress" : ""}. This is ideal for your hardest, most important tasks.`;
-              if (pct >= 70) return "Great progress today. Keep your rhythm and avoid overloading your afternoon.";
+              if (pct >= 70)        return "Great progress today. Keep your rhythm and avoid overloading your afternoon.";
               if (totalToday - doneToday > 0) return `You have ${totalToday - doneToday} task${totalToday - doneToday > 1 ? "s" : ""} left today. Start with the most important one.`;
               return "No tasks scheduled today. Open NORA chat to plan your day.";
             })();
+            const maxWlLoad = Math.max(...workloadForecast.map((d) => d.load), 1);
             return (
               <div className="status-view">
+
+                {/* ── Momentum ── */}
+                <div className="status-card momentum-card">
+                  <div className="status-card-title"><Brain size={15} /> Momentum</div>
+                  <div className="momentum-state-row">
+                    <span className="momentum-dot" style={{ background: momentum.color }} />
+                    <span className="momentum-label" style={{ color: momentum.color }}>{momentum.label}</span>
+                  </div>
+                  <p className="momentum-desc">{momentum.desc}</p>
+                  {momentum.score != null && (
+                    <div className="momentum-score-row">
+                      <div className="momentum-score-bg">
+                        <div className="momentum-score-fill" style={{ width: `${Math.round(momentum.score * 100)}%`, background: momentum.color }} />
+                      </div>
+                      <span className="momentum-score-pct">{Math.round(momentum.score * 100)}% avg</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Workload forecast ── */}
+                <div className="status-card">
+                  <div className="status-card-title"><BarChart2 size={15} /> Week Ahead</div>
+                  <div className="workload-row">
+                    {workloadForecast.map((day) => (
+                      <div key={day.date} className={`workload-day${day.isToday ? " wl-today" : ""}`}>
+                        <div className="wl-bar-wrap">
+                          <div className={`wl-bar wl-${day.level}`}
+                            style={{ height: `${Math.max(4, Math.round((day.load / maxWlLoad) * 100))}%` }}
+                            title={`${day.load} task${day.load !== 1 ? "s" : ""}${day.mins ? `, ${Math.round(day.mins / 60)}h` : ""}`} />
+                        </div>
+                        <span className="wl-label">{day.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const heavy = workloadForecast.filter((d) => d.level === "heavy");
+                    return <p className="workload-note">{heavy.length > 0 ? `${heavy.map((d) => d.label).join(", ")} ${heavy.length === 1 ? "looks" : "look"} overloaded.` : workloadForecast.some((d) => d.level !== "free") ? "This week looks manageable — good pacing." : "Light week ahead."}</p>;
+                  })()}
+                </div>
+
+                {/* ── Wellness ── */}
                 <div className="status-card">
                   <div className="status-card-title"><Wind size={15} /> How are you feeling?</div>
                   <div className="wellness-row">
@@ -1291,6 +1475,7 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                   </div>
                 </div>
 
+                {/* ── Today's progress ── */}
                 <div className="status-card">
                   <div className="status-card-title"><Check size={15} /> Today's Progress</div>
                   <div className="status-stats-row">
@@ -1313,6 +1498,44 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                   }
                 </div>
 
+                {/* ── Most avoided + micro-start ── */}
+                {mostAvoided && (
+                  <div className="status-card avoided-card">
+                    <div className="status-card-title"><Target size={15} /> Most Avoided Task</div>
+                    <div className="avoided-task-name">{mostAvoided.task.title}</div>
+                    <div className="avoided-meta">
+                      {mostAvoided.daysOverdue} day{mostAvoided.daysOverdue !== 1 ? "s" : ""} overdue
+                      {mostAvoided.count > 1 ? ` · ${mostAvoided.count} tasks waiting` : ""}
+                    </div>
+                    <div className="micro-start-label"><Lightbulb size={12} /> Start with just one of these:</div>
+                    <ul className="micro-start-list">
+                      {mostAvoided.microStarts.map((s, i) => (
+                        <li key={i} className="micro-start-item">{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* ── Focus patterns ── */}
+                {focusPatterns && (
+                  <div className="status-card">
+                    <div className="status-card-title"><Activity size={15} /> Focus Patterns</div>
+                    <div className="focus-bands">
+                      {focusPatterns.bands.map((b) => (
+                        <div key={b.key} className={`focus-band${b.key === focusPatterns.peak.key ? " focus-peak" : ""}`}>
+                          <span className="focus-band-label">{b.label}</span>
+                          <div className="focus-band-bar-wrap">
+                            <div className="focus-band-fill" style={{ width: `${focusPatterns.total > 0 ? Math.round((b.count / focusPatterns.total) * 100) : 0}%` }} />
+                          </div>
+                          <span className="focus-band-pct">{focusPatterns.total > 0 ? Math.round((b.count / focusPatterns.total) * 100) : 0}%</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="focus-peak-note">Peak: {focusPatterns.peak.label} ({focusPatterns.peak.range}) — {focusPatterns.peakPct}% of your completed work</p>
+                  </div>
+                )}
+
+                {/* ── This week sparkline ── */}
                 <div className="status-card">
                   <div className="status-card-title-row">
                     <div className="status-card-title" style={{ marginBottom: 0 }}><Activity size={15} /> This Week</div>
@@ -1344,10 +1567,22 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                   </div>
                 </div>
 
+                {/* ── Adaptive recommendations ── */}
+                {adaptiveRecs.length > 0 && (
+                  <div className="status-card reco-card">
+                    <div className="status-card-title"><Lightbulb size={15} /> What NORA Sees</div>
+                    <ul className="reco-list">
+                      {adaptiveRecs.map((r, i) => <li key={i} className="reco-item">{r}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {/* ── NORA's insight ── */}
                 <div className="status-card status-insight">
                   <div className="status-card-title"><Zap size={15} /> NORA's read on you</div>
                   <p className="insight-text">{insightText}</p>
                 </div>
+
               </div>
             );
           })()}
