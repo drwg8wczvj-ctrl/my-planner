@@ -7,6 +7,7 @@ import {
   Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
   ZoomIn, ZoomOut,
   Brain, Target, Lightbulb, BarChart2, AlertTriangle,
+  Pencil, SkipForward,
 } from "lucide-react";
 import "./App.css";
 
@@ -643,6 +644,10 @@ export default function App() {
   };
   const deleteTask = (id) => { setTasks((p) => p.filter((t) => t.id !== id)); setEditingTask(null); };
   const toggleTask = (id) => setTasks((p) => p.map((t) => t.id === id ? { ...t, completed: !t.completed } : t));
+  const skipTask   = (id) => {
+    const tomorrow = fmtDate(addDays(today, 1));
+    setTasks((p) => p.map((t) => t.id === id ? { ...t, date: tomorrow, startHour: null, startMinute: null } : t));
+  };
   const moveToSlot = (id, h, m) => setTasks((p) => p.map((t) => t.id === id ? { ...t, startHour: h, startMinute: m } : t));
 
   const askNORAtoReschedule = (task) => {
@@ -1340,7 +1345,7 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                         <Coffee size={11} /><span>{t.title || "Break"}{t.duration ? ` · ${fmtDur(t.duration)}` : ""}</span>
                       </div>
                     );
-                    return <TaskChip key={t.id} task={t} group={getGroup(t.groupId)} onToggle={toggleTask} onClick={setEditingTask} />;
+                    return <TaskChip key={t.id} task={t} group={getGroup(t.groupId)} onToggle={toggleTask} onReschedule={askNORAtoReschedule} onSkip={skipTask} onClick={setEditingTask} />;
                   })}
                   {addingAt === "unscheduled"
                     ? <input ref={addInputRef} className="slot-input" value={addingTitle}
@@ -1431,9 +1436,10 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                       const group  = getGroup(t.groupId);
                       const cx     = t.complexity ? COMPLEXITY[t.complexity] : null;
                       const gc     = group?.color ?? cx?.color ?? "var(--accent)";
+                      const isDeferred = !t.completed && t.date < today;
                       return (
                         <div key={t.id}
-                          className={`tl-task-chip${t.completed ? " done" : ""}`}
+                          className={`tl-task-chip${t.completed ? " done" : ""}${isDeferred ? " deferred" : ""}`}
                           style={{ "--gc": gc, top, height }}
                           draggable
                           onDragStart={(e) => { e.stopPropagation(); window.__dragId = t.id; }}
@@ -1452,6 +1458,24 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                             )}
                           </div>
                           {t.repeat && <RotateCcw size={9} style={{ color: "currentColor", opacity: .65, flexShrink: 0, marginTop: 2 }} />}
+                          <div className="tl-actions">
+                            {!t.completed && (
+                              <button className="tl-act" title="Reschedule with NORA"
+                                onClick={(e) => { e.stopPropagation(); askNORAtoReschedule(t); }}>
+                                <RotateCcw size={9} />
+                              </button>
+                            )}
+                            {!t.completed && (
+                              <button className="tl-act" title="Skip to tomorrow"
+                                onClick={(e) => { e.stopPropagation(); skipTask(t.id); }}>
+                                <SkipForward size={9} />
+                              </button>
+                            )}
+                            <button className="tl-act" title="Edit"
+                              onClick={(e) => { e.stopPropagation(); setEditingTask(t); }}>
+                              <Pencil size={9} />
+                            </button>
+                          </div>
                         </div>
                       );
                     })
@@ -1584,35 +1608,61 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                       const gc    = tp === "deadline" ? "#ef4444"
                                   : tp === "break"    ? "#94a3b8"
                                   : group?.color ?? cx?.color ?? "var(--accent)";
+                      const isDeferred = tp === "task" && !t.completed && t.date < today;
                       return (
-                        <div key={t.id} className={`list-task${t.completed ? " done" : ""}`}
-                          style={{ "--gc": gc }}
-                          onClick={() => setEditingTask(t)}>
-                          {tp === "task"
-                            ? <button className={`chip-check${t.completed ? " checked" : ""}`}
-                                onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
-                                {t.completed && <Check size={10} strokeWidth={3} />}
-                              </button>
-                            : <span className="list-type-icon">
-                                {tp === "deadline" ? <Flag size={13} style={{ color: "#ef4444" }} /> : <Coffee size={13} style={{ color: "#94a3b8" }} />}
+                        <div key={t.id}
+                          className={`list-task${t.completed ? " done" : ""}${isDeferred ? " deferred" : ""}`}
+                          style={{ "--gc": gc }}>
+                          {/* Header row */}
+                          <div className="list-task-main" onClick={() => setEditingTask(t)}>
+                            {tp === "task"
+                              ? <button className={`chip-check${t.completed ? " checked" : ""}`}
+                                  onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
+                                  {t.completed && <Check size={10} strokeWidth={3} />}
+                                </button>
+                              : <span className="list-type-icon">
+                                  {tp === "deadline" ? <Flag size={13} style={{ color: "#ef4444" }} /> : <Coffee size={13} style={{ color: "#94a3b8" }} />}
+                                </span>
+                            }
+                            <div className="list-task-body">
+                              <span className="list-task-title">
+                                {t.title || (tp === "break" ? "Break" : "Deadline")}
+                                {t.startHour != null && <span className="list-title-time"> — {fmtTime(t.startHour, t.startMinute ?? 0)}</span>}
                               </span>
-                          }
-                          <div className="list-task-body">
-                            <span className="list-task-title">{t.title || (tp === "break" ? "Break" : "Deadline")}</span>
-                            <div className="list-task-meta">
-                              {t.startHour != null && (
-                                <span className="list-time">{fmtTime(t.startHour, t.startMinute ?? 0)}</span>
-                              )}
-                              {t.duration   && <span className="badge dbadge">{fmtDur(t.duration)}</span>}
-                              {cx           && <span className="badge cbadge" style={{ "--cc": cx.color }}>{t.complexity}</span>}
-                              {group        && <span className="badge gbadge" style={{ "--gc": group.color }}>{group.name}</span>}
-                              {t.repeat     && <span className="badge rbadge"><RotateCcw size={9} /> {t.repeat}</span>}
-                              {t.notes      && <span className="badge nbadge"><FileText size={9} /></span>}
+                              <div className="list-task-meta">
+                                {t.duration   && <span className="badge dbadge">{fmtDur(t.duration)}</span>}
+                                {cx           && <span className="badge cbadge" style={{ "--cc": cx.color }}>{t.complexity}</span>}
+                                {group        && <span className="badge gbadge" style={{ "--gc": group.color }}>{group.name}</span>}
+                                {t.repeat     && <span className="badge rbadge"><RotateCcw size={9} /> {t.repeat}</span>}
+                                {t.notes      && <span className="badge nbadge"><FileText size={9} /></span>}
+                              </div>
                             </div>
                           </div>
-                          <button className="list-task-edit" onClick={(e) => { e.stopPropagation(); setSelectedDate(t.date); setView("day"); }}>
-                            <CalendarDays size={13} />
-                          </button>
+                          {/* Action row — tasks only */}
+                          {tp === "task" && (
+                            <div className="list-task-actions">
+                              <button className={`tca tca-done${t.completed ? " active" : ""}`}
+                                onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
+                                <Check size={10} strokeWidth={3} /> Done
+                              </button>
+                              {!t.completed && (
+                                <button className="tca tca-resched"
+                                  onClick={(e) => { e.stopPropagation(); askNORAtoReschedule(t); }}>
+                                  <RotateCcw size={10} /> Reschedule
+                                </button>
+                              )}
+                              {!t.completed && (
+                                <button className="tca tca-skip"
+                                  onClick={(e) => { e.stopPropagation(); skipTask(t.id); }}>
+                                  <SkipForward size={10} /> Skip
+                                </button>
+                              )}
+                              <button className="tca tca-edit"
+                                onClick={(e) => { e.stopPropagation(); setEditingTask(t); }}>
+                                <Pencil size={10} /> Edit
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2174,27 +2224,44 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
   );
 }
 
-function TaskChip({ task, group, onToggle, onClick, compact }) {
+function TaskChip({ task, group, onToggle, onReschedule, onSkip, onClick }) {
   const cx = task.complexity ? COMPLEXITY[task.complexity] : null;
+  const todayLocal = fmtDate(new Date());
+  const isDeferred = !task.completed && task.date < todayLocal;
+  const timeStr = task.startHour != null ? fmtTime(task.startHour, task.startMinute ?? 0) : null;
   return (
-    <div className={`task-chip${task.completed ? " done" : ""}${compact ? " compact" : ""}`}
-      style={{ "--gc": group?.color ?? (cx?.color ?? "var(--accent)") }}
-      draggable onDragStart={() => (window.__dragId = task.id)}
-      onClick={(e) => { e.stopPropagation(); onClick(task); }}>
-      <button className={`chip-check${task.completed ? " checked" : ""}`}
-        onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}>
-        {task.completed && <Check size={10} strokeWidth={3} />}
-      </button>
-      <span className="chip-title">{task.title}</span>
-      {!compact && (
-        <div className="chip-meta">
-          {task.duration && <span className="badge dbadge">{fmtDur(task.duration)}</span>}
-          {cx    && <span className="badge cbadge" style={{ "--cc": cx.color }}>{task.complexity}</span>}
-          {group && <span className="badge gbadge" style={{ "--gc": group.color }}>{group.name}</span>}
-          {task.repeat && <RotateCcw size={9} style={{ color: "var(--accent)", flexShrink: 0 }} />}
-          {task.notes && <span className="badge nbadge"><FileText size={10} /></span>}
-        </div>
-      )}
+    <div
+      className={`task-chip${task.completed ? " done" : ""}${isDeferred ? " deferred" : ""}`}
+      style={{ "--gc": group?.color ?? cx?.color ?? "var(--accent)" }}
+      draggable onDragStart={() => (window.__dragId = task.id)}>
+      <div className="chip-header">
+        <span className="chip-title">
+          {task.title}
+          {timeStr && <span className="chip-time"> — {timeStr}</span>}
+        </span>
+      </div>
+      <div className="chip-actions">
+        <button className={`tca tca-done${task.completed ? " active" : ""}`}
+          onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}>
+          <Check size={10} strokeWidth={3} /> Done
+        </button>
+        {!task.completed && onReschedule && (
+          <button className="tca tca-resched"
+            onClick={(e) => { e.stopPropagation(); onReschedule(task); }}>
+            <RotateCcw size={10} /> Reschedule
+          </button>
+        )}
+        {!task.completed && onSkip && (
+          <button className="tca tca-skip"
+            onClick={(e) => { e.stopPropagation(); onSkip(task.id); }}>
+            <SkipForward size={10} /> Skip
+          </button>
+        )}
+        <button className="tca tca-edit"
+          onClick={(e) => { e.stopPropagation(); onClick(task); }}>
+          <Pencil size={10} /> Edit
+        </button>
+      </div>
     </div>
   );
 }
