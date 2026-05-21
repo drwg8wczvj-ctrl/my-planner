@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { supabase } from "./lib/supabase";
+import AuthScreen from "./AuthScreen";
 import {
   Plus, Check, ChevronLeft, ChevronRight, CalendarDays,
   Clock, MessageSquare, X, Send, FileText, Trash2,
@@ -265,6 +267,21 @@ function useLocalStorage(key, initial) {
 
 // ── App ────────────────────────────────────────────────
 export default function App() {
+  const [session,     setSession]     = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [tasks,        setTasks]        = useLocalStorage("nora_tasks", []);
   const [groups,       setGroups]       = useLocalStorage("nora_groups", DEFAULT_GROUPS);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -304,7 +321,6 @@ export default function App() {
   const [activeSettings, setActiveSettings] = useState(null);
   const [notifEnabled,   setNotifEnabled]   = useLocalStorage("nora_notif_enabled", false);
   const [accountName,    setAccountName]    = useLocalStorage("nora_account_name", "");
-  const [accountEmail,   setAccountEmail]   = useLocalStorage("nora_account_email", "");
   const [reminderMins,   setReminderMins]   = useLocalStorage("nora_reminder_mins", 5);
   const [relaxation,     setRelaxation]     = useLocalStorage("nora_relaxation", 5);
   const [energy,         setEnergy]         = useLocalStorage("nora_energy", 5);
@@ -1149,6 +1165,14 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
     </div>
   );
 
+  // ── Auth guard ────────────────────────────────────────
+  if (authLoading) return (
+    <div className={`app${dark ? " dark" : ""} auth-loading-wrap`}>
+      <div className="auth-spinner" />
+    </div>
+  );
+  if (!session) return <AuthScreen dark={dark} />;
+
   // ── Render ────────────────────────────────────────────
   return (
     <div className={`app${dark ? " dark" : ""}`}>
@@ -1235,10 +1259,12 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
                   onChange={(e) => setAccountName(e.target.value)} />
               </div>
               <div className="sett-field">
-                <label className="sett-field-lbl">Email</label>
-                <input className="sett-input" type="email" value={accountEmail} placeholder="email@example.com"
-                  onChange={(e) => setAccountEmail(e.target.value)} />
+                <label className="sett-field-lbl">Signed in as</label>
+                <span className="sett-email-display">{session?.user?.email}</span>
               </div>
+              <button className="sett-signout-btn" onClick={() => supabase.auth.signOut()}>
+                Sign out
+              </button>
             </div>
           )}
         </div>
