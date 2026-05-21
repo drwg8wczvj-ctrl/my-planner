@@ -27,7 +27,11 @@ export default function AuthScreen({ dark }) {
         // onAuthStateChange in App.js handles the rest
       }
     } catch (err) {
-      setError(err.message);
+      if (err.message === "Load failed" || err.message === "Failed to fetch") {
+        setError("Cannot reach Supabase — check that your project is active and the environment variables are set in Vercel.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
