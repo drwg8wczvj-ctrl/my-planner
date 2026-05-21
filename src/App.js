@@ -271,13 +271,11 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => { setSession(session); setAuthLoading(false); })
+      .catch(() => setAuthLoading(false));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setAuthLoading(false);
+      setSession(session); setAuthLoading(false);
     });
     return () => subscription.unsubscribe();
   }, []);
