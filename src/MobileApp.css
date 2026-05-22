@@ -29,15 +29,8 @@
 .mob-header-brand {
   display: flex; align-items: center; gap: 8px;
 }
-.mob-logo-mark {
-  width: 30px; height: 30px; border-radius: 9px;
-  background: var(--grad);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 15px; font-weight: 900;
-}
-.mob-brand-name {
-  font-size: 17px; font-weight: 900; letter-spacing: -.04em;
-  background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+.mob-brand-logo {
+  height: 36px; width: auto; object-fit: contain; display: block;
 }
 .mob-header-date {
   font-size: 12px; color: var(--text-muted); font-weight: 500;

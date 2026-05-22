@@ -90,16 +90,16 @@ export default function MobileApp({ ctx }) {
 
 // ── Header ───────────────────────────────────────────────────
 function MobileHeader({ ctx }) {
-  const { today } = ctx;
+  const { today, dark } = ctx;
   const d = new Date(today + "T00:00:00");
   const dayName  = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()];
   const dateText = `${dayName}, ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]} ${d.getDate()}`;
   return (
     <header className="mob-header">
-      <div className="mob-header-brand">
-        <div className="mob-logo-mark">N</div>
-        <span className="mob-brand-name">NORA</span>
-      </div>
+      <img
+        src={dark ? "/logo-dark.png" : "/logo-light.png"}
+        className="mob-brand-logo"
+        alt="NORA" />
       <span className="mob-header-date">{dateText}</span>
     </header>
   );
