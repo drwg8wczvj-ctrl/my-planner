@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { supabase } from "./lib/supabase";
 import { loadUserData, saveUserData } from "./lib/noraApi";
 import AuthScreen from "./AuthScreen";
+import MobileApp from "./MobileApp";
+import { useMobile } from "./hooks/useMobile";
 import {
   Plus, Check, ChevronLeft, ChevronRight, CalendarDays,
   Clock, MessageSquare, X, Send, FileText, Trash2,
@@ -270,6 +272,7 @@ function useLocalStorage(key, initial) {
 export default function App() {
   const [session,     setSession]     = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const isMobile = useMobile();
 
   useEffect(() => {
     supabase.auth.getSession()
@@ -1254,7 +1257,26 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
   );
   if (!session) return <AuthScreen dark={dark} />;
 
-  // ── Render ────────────────────────────────────────────
+  // ── Mobile layout ─────────────────────────────────────
+  if (isMobile) {
+    const mobileCtx = {
+      tasks, setTasks, groups, notes, setNotes, session, today, nowObj, dark,
+      accountName, energy, setEnergy, relaxation, setRelaxation,
+      inAppAlert, setInAppAlert, reminderMins,
+      chatOpen, setChatOpen, chatInput, setChatInput, chatLoading, messages, sendChat,
+      editingTask, setEditingTask, draft, setDraft,
+      todayTasks, deferredTasks, contextMode, aiFocus,
+      momentum, recoveryState, workloadForecast, weekData, weekTrend,
+      adaptiveRecs, weeklyReflection, mostAvoided, focusPatterns,
+      doneToday, totalToday, pct,
+      toggleTask, skipTask, askNORAtoReschedule, saveTask, deleteTask,
+      addNote: (text) => setNotes((p) => [...p, { id: uid(), content: text, done: false, createdAt: Date.now() }]),
+      toggleNote, updateNote, deleteNote, getGroup,
+    };
+    return <MobileApp ctx={mobileCtx} />;
+  }
+
+  // ── Desktop render ────────────────────────────────────
   return (
     <div className={`app${dark ? " dark" : ""}`}>
 
