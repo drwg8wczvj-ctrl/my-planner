@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { supabase } from "./lib/supabase";
+import { loadUserData, saveUserData } from "./lib/noraApi";
 import AuthScreen from "./AuthScreen";
 import {
   Plus, Check, ChevronLeft, ChevronRight, CalendarDays,
@@ -280,6 +281,35 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load all app data from Supabase when user logs in
+  useEffect(() => {
+    if (!session) return;
+    loadUserData().then((data) => {
+      if (!data) return;
+      if (Array.isArray(data.tasks)  && data.tasks.length)  setTasks(data.tasks);
+      if (Array.isArray(data.groups) && data.groups.length) setGroups(data.groups);
+      if (Array.isArray(data.notes)  && data.notes.length)  setNotes(data.notes);
+      const p = data.preferences ?? {};
+      if (p.accountName  != null) setAccountName(p.accountName);
+      if (p.dark         != null) setDark(p.dark);
+      if (p.reminderMins != null) setReminderMins(p.reminderMins);
+      if (p.relaxation   != null) setRelaxation(p.relaxation);
+      if (p.energy       != null) setEnergy(p.energy);
+    }).catch(console.error);
+  }, [session]); // eslint-disable-line
+
+  // Sync all app data to Supabase 1 s after the last change
+  useEffect(() => {
+    if (!session) return;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      saveUserData({
+        tasks, groups, notes,
+        preferences: { accountName, dark, reminderMins, relaxation, energy },
+      }).catch(console.error);
+    }, 1000);
+  }, [tasks, groups, notes, accountName, dark, reminderMins, relaxation, energy]); // eslint-disable-line
+
   const [tasks,        setTasks]        = useLocalStorage("nora_tasks", []);
   const [groups,       setGroups]       = useLocalStorage("nora_groups", DEFAULT_GROUPS);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -326,6 +356,7 @@ export default function App() {
     typeof Notification !== "undefined" ? Notification.permission : "denied"
   );
   const notifTimers = useRef({});
+  const syncTimer   = useRef(null);
 
   // Live clock — re-renders every 30 s so the now-line and "Today" label stay current
   const [tick, setTick] = useState(() => new Date());

@@ -80,6 +80,27 @@ export async function updateUserProfile(updates) {
   return data;
 }
 
+// ── Cross-device app data sync ────────────────────────────────
+
+export async function loadUserData() {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("user_app_data")
+    .select("*")
+    .eq("user_id", user.id)
+    .single();
+  if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows yet
+  return data ?? null;
+}
+
+export async function saveUserData({ tasks, groups, notes, preferences }) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from("user_app_data")
+    .upsert({ user_id: user.id, tasks, groups, notes, preferences });
+  if (error) throw error;
+}
+
 // ── AI context bundle ─────────────────────────────────────────
 // Call before every NORA AI request to inject full user context
 
