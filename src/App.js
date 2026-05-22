@@ -586,22 +586,6 @@ export default function App() {
     return { topHours, avgDur, bestDayName, hardRate, longTasksFail, sampleSize: doneT.length };
   }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-save behavior profile snapshot to persistent preferences
-  useEffect(() => {
-    if (!session) return;
-    setUserPrefs((prev) => {
-      const bp = prev.behavior_profile;
-      const changed = !bp
-        || bp.work_style              !== behaviorProfile.work_style
-        || bp.completion_consistency  !== behaviorProfile.completion_consistency
-        || bp.confidence              !== behaviorProfile.confidence;
-      if (!changed) return prev;
-      const updated = { ...prev, behavior_profile: behaviorProfile };
-      saveUserPreferences(updated).catch(console.warn);
-      return updated;
-    });
-  }, [session, behaviorProfile]); // eslint-disable-line
-
   // Auto-save inferred preferences when behavioral data is ready
   useEffect(() => {
     if (!session) return;
@@ -707,6 +691,22 @@ export default function App() {
       : sampleSize >= 15 ? "MEDIUM" : "EXPERIMENTAL";
     return { work_style, completion_consistency, overload_response, restart_speed, confidence, sampleSize };
   }, [tasks, momentum, recoveryState]); // eslint-disable-line
+
+  // Auto-save behavior profile snapshot to persistent preferences
+  useEffect(() => {
+    if (!session) return;
+    setUserPrefs((prev) => {
+      const bp = prev.behavior_profile;
+      const changed = !bp
+        || bp.work_style             !== behaviorProfile.work_style
+        || bp.completion_consistency !== behaviorProfile.completion_consistency
+        || bp.confidence             !== behaviorProfile.confidence;
+      if (!changed) return prev;
+      const updated = { ...prev, behavior_profile: behaviorProfile };
+      saveUserPreferences(updated).catch(console.warn);
+      return updated;
+    });
+  }, [session, behaviorProfile]); // eslint-disable-line
 
   const aiFocus = useMemo(() => {
     const incomplete = todayTasks.filter((t) => !t.completed && t.type !== "break");
