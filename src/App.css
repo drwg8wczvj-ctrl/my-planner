@@ -754,13 +754,15 @@
   font-size: 11px; font-weight: 800; text-transform: uppercase;
   letter-spacing: .08em; color: var(--text-muted);
 }
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 
 .month-day {
   min-height: 100px; padding: 8px 8px 6px;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   cursor: pointer; transition: background var(--tr);
+  overflow: hidden;
+  min-width: 0;
 }
 .month-day:nth-child(7n) { border-right: none; }
 .month-day:hover         { background: var(--surface-2); }

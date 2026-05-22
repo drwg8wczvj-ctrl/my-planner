@@ -116,3 +116,64 @@ export async function getAIContext() {
     completed_tasks: tasks.filter(t => t.status === "completed").slice(-20),
   };
 }
+
+// ── Chat history (24-hour rolling window) ─────────────────────
+
+const CHAT_TTL_MS = 24 * 60 * 60 * 1000;
+
+export async function saveChatMessage(role, message) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { error } = await supabase
+    .from("chat_messages")
+    .insert({ user_id: user.id, role, message });
+  if (error) console.warn("saveChatMessage:", error.message);
+}
+
+export async function loadRecentChatMessages() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  const cutoff = new Date(Date.now() - CHAT_TTL_MS).toISOString();
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .select("role, message")
+    .eq("user_id", user.id)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: true });
+  if (error) { console.warn("loadRecentChatMessages:", error.message); return []; }
+  return (data ?? []).map(r => ({ role: r.role, content: r.message }));
+}
+
+export async function deleteOldChatMessages() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const cutoff = new Date(Date.now() - CHAT_TTL_MS).toISOString();
+  await supabase
+    .from("chat_messages")
+    .delete()
+    .eq("user_id", user.id)
+    .lt("created_at", cutoff);
+}
+
+// ── Persistent user preferences ───────────────────────────────
+
+export async function getUserPreferences() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return {};
+  const { data, error } = await supabase
+    .from("user_preferences")
+    .select("preferences")
+    .eq("user_id", user.id)
+    .single();
+  if (error && error.code !== "PGRST116") console.warn("getUserPreferences:", error.message);
+  return data?.preferences ?? {};
+}
+
+export async function saveUserPreferences(prefs) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { error } = await supabase
+    .from("user_preferences")
+    .upsert({ user_id: user.id, preferences: prefs, updated_at: new Date().toISOString() });
+  if (error) console.warn("saveUserPreferences:", error.message);
+}

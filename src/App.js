@@ -1,6 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { supabase } from "./lib/supabase";
-import { loadUserData, saveUserData } from "./lib/noraApi";
+import {
+  loadUserData, saveUserData,
+  saveChatMessage, loadRecentChatMessages, deleteOldChatMessages,
+  getUserPreferences, saveUserPreferences,
+} from "./lib/noraApi";
 import AuthScreen from "./AuthScreen";
 import MobileApp from "./MobileApp";
 import { useMobile } from "./hooks/useMobile";
@@ -58,6 +62,12 @@ const fmtTime = (h, m) => {
   const suffix = h < 12 ? "AM" : "PM";
   const hr = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${hr}:${pad(m)} ${suffix}`;
+};
+
+const fmtTimeShort = (h, m) => {
+  const sfx = h < 12 ? "AM" : "PM";
+  const hr  = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return m === 0 ? `${hr}${sfx}` : `${hr}:${pad(m)}${sfx}`;
 };
 
 const fmtHourLabel = (h) => {
@@ -289,7 +299,10 @@ export default function App() {
     if (!session) return;
     loadUserData().then((data) => {
       if (!data) return;
-      if (Array.isArray(data.tasks)  && data.tasks.length)  setTasks(data.tasks);
+      if (Array.isArray(data.tasks) && data.tasks.length) {
+        const cutoff = fmtDate(addDays(todayStr(), -30));
+        setTasks(data.tasks.filter((t) => t.repeat || t.date >= cutoff));
+      }
       if (Array.isArray(data.groups) && data.groups.length) setGroups(data.groups);
       if (Array.isArray(data.notes)  && data.notes.length)  setNotes(data.notes);
       const p = data.preferences ?? {};
@@ -299,6 +312,22 @@ export default function App() {
       if (p.relaxation   != null) setRelaxation(p.relaxation);
       if (p.energy       != null) setEnergy(p.energy);
     }).catch(console.error);
+  }, [session]); // eslint-disable-line
+
+  // Load chat history (last 24h) and persistent preferences on login
+  useEffect(() => {
+    if (!session) return;
+    (async () => {
+      await deleteOldChatMessages();
+      const [history, prefs] = await Promise.all([
+        loadRecentChatMessages(),
+        getUserPreferences(),
+      ]);
+      if (history.length > 0) {
+        setMessages(prev => [prev[0], ...history]);
+      }
+      setUserPrefs(prefs);
+    })().catch(console.error);
   }, [session]); // eslint-disable-line
 
   const [tasks,        setTasks]        = useLocalStorage("nora_tasks", []);
@@ -328,6 +357,7 @@ export default function App() {
     role: "assistant",
     content: "Hi! I'm NORA, your productivity coach. I can manage your tasks, spot patterns in your schedule, and give you evidence-based advice to get more done. What are you working on today?",
   }]);
+  const [userPrefs,   setUserPrefs]   = useState({});
   const chatEndRef   = useRef(null);
   const chatInputRef = useRef(null);
 
@@ -555,6 +585,22 @@ export default function App() {
 
     return { topHours, avgDur, bestDayName, hardRate, longTasksFail, sampleSize: doneT.length };
   }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save inferred preferences when behavioral data is ready
+  useEffect(() => {
+    if (!session) return;
+    const inferred = {};
+    if (focusPatterns?.peak?.key) inferred.peak_hours = focusPatterns.peak.key;
+    if (adaptivePlanData?.avgDur) inferred.preferred_session_mins = adaptivePlanData.avgDur;
+    if (Object.keys(inferred).length === 0) return;
+    setUserPrefs(prev => {
+      const changed = Object.entries(inferred).some(([k, v]) => prev[k] !== v);
+      if (!changed) return prev;
+      const updated = { ...prev, ...inferred };
+      saveUserPreferences(updated).catch(console.warn);
+      return updated;
+    });
+  }, [session, focusPatterns, adaptivePlanData]); // eslint-disable-line
 
   // ── Weekly reflection — interprets what happened this week ──────
   const weeklyReflection = useMemo(() => {
@@ -847,6 +893,16 @@ export default function App() {
       if (peak) peakHourStr = `${peak[0]}:00–${parseInt(peak[0]) + 2}:00`;
     }
 
+    const prefsLines = [];
+    if (userPrefs.peak_hours)              prefsLines.push(`Peak productive hours: ${userPrefs.peak_hours}`);
+    if (userPrefs.preferred_session_mins)  prefsLines.push(`Preferred session: ${userPrefs.preferred_session_mins} min`);
+    if (userPrefs.work_style && userPrefs.work_style !== "flexible")
+                                           prefsLines.push(`Work style: ${userPrefs.work_style}`);
+    if (userPrefs.goals)                   prefsLines.push(`User goals: ${userPrefs.goals}`);
+    const prefsBlock = prefsLines.length > 0
+      ? `\n━━━ PERSISTENT USER CONTEXT ━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${prefsLines.join("\n")}\n\nApply these silently — never re-ask for what you already know.\n`
+      : "";
+
     return `You are NORA — a calm, intelligent planning butler. Today is ${today}.
 You know this person's schedule and genuinely care about how they're doing. Be direct, warm, brief.
 Never start with "Certainly!", "Absolutely!", "Of course!", or "Great question!". Use contractions. Refer to tasks by name.
@@ -892,7 +948,7 @@ Best hours:     ${adaptivePlanData ? adaptivePlanData.topHours.slice(0, 2).map((
 Avg session:    ${adaptivePlanData?.avgDur ? `~${adaptivePlanData.avgDur} min (from successful completions)` : "unknown"}
 Best day:       ${adaptivePlanData?.bestDayName ?? "unknown"}
 Long tasks:     ${adaptivePlanData?.longTasksFail ? "often fail — split sessions >90 min automatically" : "completing fine"}
-
+${prefsBlock}
 ━━━ CURRENT WELLNESS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Relaxation ${relaxation}/10 · Energy ${energy}/10
@@ -1035,6 +1091,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
     if (!text || chatLoading) return;
     const uiHistory = [...messages, { role: "user", content: text }];
     setMessages(uiHistory); setChatInput(""); setChatLoading(true);
+    saveChatMessage("user", text).catch(console.warn);
 
     const toApiMsgs = (msgs) => {
       const flat = msgs.filter((m) => m.role === "user" || m.role === "assistant");
@@ -1071,7 +1128,9 @@ Everything else → as short as possible. If nothing notable to add, don't add i
         setTasks(workingTasks);
         apiMsgs = [...apiMsgs, ...toolResults];
       }
-      setMessages((m) => [...m, { role: "assistant", content: finalText || "Done!" }]);
+      const reply = finalText || "Done!";
+      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      saveChatMessage("assistant", reply).catch(console.warn);
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `Error: ${e.message}` }]);
     } finally { setChatLoading(false); }
@@ -1170,6 +1229,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
       toggleTask, skipTask, askNORAtoReschedule, saveTask, deleteTask,
       addNote: (text) => setNotes((p) => [...p, { id: uid(), content: text, done: false, createdAt: Date.now() }]),
       toggleNote, updateNote, deleteNote, getGroup,
+      userPrefs, setUserPrefs,
     };
     return <MobileApp ctx={mobileCtx} />;
   }
@@ -1769,7 +1829,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
                               {tp === "deadline" && <Flag size={8} style={{ flexShrink: 0 }} />}
                               {tp === "break"    && <Coffee size={8} style={{ flexShrink: 0 }} />}
                               {tp === "task" && t.repeat && <RotateCcw size={8} style={{ flexShrink: 0 }} />}
-                              {t.startHour != null && <span className="mtp-time">{fmtTime(t.startHour, t.startMinute??0)} </span>}
+                              {t.startHour != null && <span className="mtp-time">{fmtTimeShort(t.startHour, t.startMinute??0)} </span>}
                               {t.title || (tp === "break" ? "Break" : tp === "deadline" ? "Deadline" : "")}
                             </div>
                           );
