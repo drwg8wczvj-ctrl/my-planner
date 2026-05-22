@@ -586,6 +586,22 @@ export default function App() {
     return { topHours, avgDur, bestDayName, hardRate, longTasksFail, sampleSize: doneT.length };
   }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-save behavior profile snapshot to persistent preferences
+  useEffect(() => {
+    if (!session) return;
+    setUserPrefs((prev) => {
+      const bp = prev.behavior_profile;
+      const changed = !bp
+        || bp.work_style              !== behaviorProfile.work_style
+        || bp.completion_consistency  !== behaviorProfile.completion_consistency
+        || bp.confidence              !== behaviorProfile.confidence;
+      if (!changed) return prev;
+      const updated = { ...prev, behavior_profile: behaviorProfile };
+      saveUserPreferences(updated).catch(console.warn);
+      return updated;
+    });
+  }, [session, behaviorProfile]); // eslint-disable-line
+
   // Auto-save inferred preferences when behavioral data is ready
   useEffect(() => {
     if (!session) return;
@@ -653,19 +669,44 @@ export default function App() {
       .sort((a, b) => b.daysDeferred - a.daysDeferred);
   }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const contextMode = useMemo(() => {
+  const noraState = useMemo(() => {
+    const heavyForecast = workloadForecast.some((d) => d.level === "heavy");
     if (recoveryState.level === "burnout" || recoveryState.level === "recovery")
-      return { label: "Recovery Day",        color: "#ef4444" };
+      return { key: "recovery_day",      label: "Recovery Day",      color: "#ef4444", confidence: "HIGH" };
     if (momentum.state === "overloaded")
-      return { label: "High Load",           color: "#f97316" };
+      return { key: "high_load",         label: "High Load",         color: "#f97316",
+               confidence: heavyForecast ? "HIGH" : "MEDIUM" };
     if (energy >= 7 && relaxation >= 7)
-      return { label: "Peak Focus",          color: "#22c55e" };
+      return { key: "peak_focus",        label: "Peak Focus",        color: "#22c55e", confidence: "HIGH" };
     if (momentum.state === "rising")
-      return { label: "Building Momentum",   color: "#3b82f6" };
+      return { key: "building_momentum", label: "Building Momentum", color: "#3b82f6", confidence: "MEDIUM" };
     if (momentum.state === "stable")
-      return { label: "Steady Flow",         color: "#8b5cf6" };
-    return   { label: "Focus Mode",          color: "var(--accent)" };
-  }, [recoveryState, momentum, energy, relaxation]); // eslint-disable-line
+      return { key: "steady_flow",       label: "Steady Flow",       color: "#8b5cf6", confidence: "HIGH" };
+    return   { key: "focus_mode",        label: "Focus Mode",        color: "var(--accent)", confidence: "MEDIUM" };
+  }, [recoveryState, momentum, energy, relaxation, workloadForecast]); // eslint-disable-line
+
+  const contextMode = noraState; // UI alias — keeps all existing JSX working
+
+  const behaviorProfile = useMemo(() => {
+    const allTasks   = tasks.filter((t) => t.type !== "break");
+    const sampleSize = allTasks.length;
+    const schedulingRate = sampleSize > 0
+      ? allTasks.filter((t) => t.startHour != null).length / sampleSize : 0;
+    const work_style = schedulingRate > 0.65 ? "structured"
+      : schedulingRate > 0.3 ? "mixed" : "flexible";
+    const completion_consistency = momentum.score != null
+      ? Math.round(momentum.score * 100) : null;
+    const overload_response =
+      momentum.state === "overloaded" && recoveryState.level === "burnout"
+        ? "continues despite overload"
+        : momentum.state === "overloaded" ? "reduces load under pressure"
+        : "stable";
+    const restart_speed = momentum.state === "recovering" ? "fast"
+      : recoveryState.level === "recovery" ? "slow" : "n/a";
+    const confidence = sampleSize >= 40 ? "HIGH"
+      : sampleSize >= 15 ? "MEDIUM" : "EXPERIMENTAL";
+    return { work_style, completion_consistency, overload_response, restart_speed, confidence, sampleSize };
+  }, [tasks, momentum, recoveryState]); // eslint-disable-line
 
   const aiFocus = useMemo(() => {
     const incomplete = todayTasks.filter((t) => !t.completed && t.type !== "break");
@@ -903,6 +944,15 @@ export default function App() {
       ? `\n━━━ PERSISTENT USER CONTEXT ━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${prefsLines.join("\n")}\n\nApply these silently — never re-ask for what you already know.\n`
       : "";
 
+    const noraStateGuidance = {
+      recovery_day:      "Protect the user today. No new tasks. Offer to defer or remove items only.",
+      high_load:         "Acknowledge the load. Suggest removing ≥1 task before adding any.",
+      peak_focus:        "Full scheduling allowed. Suggest the hardest or most-avoided task first.",
+      building_momentum: "Reinforce the trend. Keep sessions consistent — avoid disrupting the rhythm.",
+      steady_flow:       "Maintain the rhythm. No sudden schedule changes.",
+      focus_mode:        "Standard mode. Be practical and light on structure.",
+    }[noraState.key] ?? "Standard mode.";
+
     return `You are NORA — a calm, intelligent planning butler. Today is ${today}.
 You know this person's schedule and genuinely care about how they're doing. Be direct, warm, brief.
 Never start with "Certainly!", "Absolutely!", "Of course!", or "Great question!". Use contractions. Refer to tasks by name.
@@ -938,16 +988,23 @@ Groups: ${groups.map((g) => `${g.id}="${g.name}"`).join(", ") || "(none)"}.
 All scheduled items:
 ${taskLines}
 
+━━━ NORA STATE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Primary state: ${noraState.label} [${noraState.confidence} confidence]
+→ ${noraStateGuidance}
+
+This is the single state driving all AI behavior today. Use it as the primary lens.
+Secondary signals (momentum, recovery) are provided below for nuance only.
+
 ━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
 Momentum:       ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg)` : ""}  — ${momentum.desc}
-Recovery state: ${recoveryState.label} — ${recoveryState.desc}
-Most avoided:   ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d deferred — still active)` : "(none)"}
-Focus peak:     ${focusPatterns ? `${focusPatterns.peak.label} (${focusPatterns.peak.range}), ${focusPatterns.peakPct}% of completions` : "not enough data"}
-Heavy days:     ${workloadForecast.filter((d) => d.level === "heavy").map((d) => d.label).join(", ") || "none"}
-Best hours:     ${adaptivePlanData ? adaptivePlanData.topHours.slice(0, 2).map((h) => fmtTime(h, 0)).join(", ") : "unknown"}
-Avg session:    ${adaptivePlanData?.avgDur ? `~${adaptivePlanData.avgDur} min (from successful completions)` : "unknown"}
-Best day:       ${adaptivePlanData?.bestDayName ?? "unknown"}
-Long tasks:     ${adaptivePlanData?.longTasksFail ? "often fail — split sessions >90 min automatically" : "completing fine"}
+Recovery:          ${recoveryState.label} — ${recoveryState.desc}
+Most avoided:      ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d deferred)` : "(none)"}
+Work style:        ${behaviorProfile.work_style}
+Consistency:       ${behaviorProfile.completion_consistency != null ? `${behaviorProfile.completion_consistency}% (14-day avg)` : "not enough data"}
+Overload pattern:  ${behaviorProfile.overload_response}
+Restart speed:     ${behaviorProfile.restart_speed}
+Data confidence:   ${behaviorProfile.confidence} (${behaviorProfile.sampleSize} tasks sampled)
 ${prefsBlock}
 ━━━ CURRENT WELLNESS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1031,8 +1088,17 @@ Deadline with no prep tasks, or task implying sub-steps that don't exist → cre
 
 ━━━ MICRO-START MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Activate when: user is stuck / overwhelmed / procrastinating, task avoided 3+ days, or momentum is Unstable/Overloaded.
-Response: 3 tiny starting actions (5–15 min each). Framed as steps, not tasks. No guilt. Offer to add one to the calendar.
+Activate when: stuck / overwhelmed / procrastinating, task avoided 3+ days, or NORA STATE is High Load / Recovery Day.
+
+Generate exactly 3 actions. Every action must be:
+✓ Physical and immediate — verb + object only
+✓ Completable in under 5 minutes
+✓ Free of motivation, framing, or explanation
+
+✓ "Open the document."   ✓ "Write the first line."   ✓ "Set a 5-minute timer."
+✗ "Think about where to start."   ✗ "Consider your approach."   ✗ "Remember why this matters."
+
+End with one offer only: add the first action as a 10-minute calendar block. Nothing else.
 
 ━━━ RECOVERY AWARENESS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1229,7 +1295,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
       toggleTask, skipTask, askNORAtoReschedule, saveTask, deleteTask,
       addNote: (text) => setNotes((p) => [...p, { id: uid(), content: text, done: false, createdAt: Date.now() }]),
       toggleNote, updateNote, deleteNote, getGroup,
-      userPrefs, setUserPrefs,
+      userPrefs, setUserPrefs, noraState, behaviorProfile,
     };
     return <MobileApp ctx={mobileCtx} />;
   }
