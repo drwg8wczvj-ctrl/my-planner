@@ -1502,14 +1502,19 @@ Everything else → as short as possible. If nothing notable to add, don't add i
           </button>
           {activeSettings === "account" && (
             <div className="sacc-body">
+              <div className="acc-profile-card">
+                <div className="acc-avatar">
+                  {(accountName?.trim()[0] ?? session?.user?.email?.[0] ?? "U").toUpperCase()}
+                </div>
+                <div className="acc-profile-info">
+                  <span className="acc-display-name">{accountName || "No name set"}</span>
+                  <span className="acc-email">{session?.user?.email}</span>
+                </div>
+              </div>
               <div className="sett-field">
                 <label className="sett-field-lbl">Display Name</label>
                 <input className="sett-input" value={accountName} placeholder="Your name"
                   onChange={(e) => setAccountName(e.target.value)} />
-              </div>
-              <div className="sett-field">
-                <label className="sett-field-lbl">Signed in as</label>
-                <span className="sett-email-display">{session?.user?.email}</span>
               </div>
               <button className="sett-signout-btn" onClick={() => supabase.auth.signOut()}>
                 Sign out
