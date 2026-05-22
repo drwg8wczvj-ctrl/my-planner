@@ -10,7 +10,7 @@ import {
   Activity, Zap, Wind, TrendingUp, TrendingDown, Minus,
   ZoomIn, ZoomOut,
   Brain, Target, Lightbulb, BarChart2, AlertTriangle,
-  Pencil, SkipForward,
+  Pencil, SkipForward, Sparkles,
 } from "lucide-react";
 import "./App.css";
 
@@ -345,6 +345,9 @@ export default function App() {
   );
   const notifTimers = useRef({});
   const syncTimer   = useRef(null);
+  const [showFilters,    setShowFilters]    = useState(false);
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const [smartView,      setSmartView]      = useState(true);
 
   // Live clock — re-renders every 30 s so the now-line and "Today" label stay current
   const [tick, setTick] = useState(() => new Date());
@@ -356,6 +359,7 @@ export default function App() {
   const nowObj      = tick;
   const today       = fmtDate(tick);
   const currentHour = tick.getHours();
+  const nowMins     = tick.getHours() * 60 + tick.getMinutes();
 
   // Sync all app data to Supabase 1 s after the last change
   useEffect(() => {
@@ -599,6 +603,54 @@ export default function App() {
       })
       .sort((a, b) => b.daysDeferred - a.daysDeferred);
   }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const contextMode = useMemo(() => {
+    if (recoveryState.level === "burnout" || recoveryState.level === "recovery")
+      return { label: "Recovery Day",        color: "#ef4444" };
+    if (momentum.state === "overloaded")
+      return { label: "High Load",           color: "#f97316" };
+    if (energy >= 7 && relaxation >= 7)
+      return { label: "Peak Focus",          color: "#22c55e" };
+    if (momentum.state === "rising")
+      return { label: "Building Momentum",   color: "#3b82f6" };
+    if (momentum.state === "stable")
+      return { label: "Steady Flow",         color: "#8b5cf6" };
+    return   { label: "Focus Mode",          color: "var(--accent)" };
+  }, [recoveryState, momentum, energy, relaxation]); // eslint-disable-line
+
+  const aiFocus = useMemo(() => {
+    const incomplete = todayTasks.filter((t) => !t.completed && t.type !== "break");
+    const priorityTask = [...incomplete].sort((a, b) => {
+      if (a.startHour != null && b.startHour != null)
+        return a.startHour * 60 + (a.startMinute ?? 0) - (b.startHour * 60 + (b.startMinute ?? 0));
+      if (a.startHour != null) return -1;
+      if (b.startHour != null) return  1;
+      return 0;
+    })[0] ?? null;
+
+    const remaining = incomplete.length;
+    let insight;
+    if (remaining === 0 && doneToday > 0)
+      insight = `All ${doneToday} task${doneToday > 1 ? "s" : ""} done — great work today.`;
+    else if (remaining === 0)
+      insight = "Nothing scheduled yet. Ask NORA to plan your day.";
+    else if (energy <= 3)
+      insight = `Energy is low — focus on "${priorityTask?.title ?? "one task"}" and rest after.`;
+    else if (recoveryState.level !== "stable")
+      insight = "One task at a time — keep today light.";
+    else if (remaining === 1)
+      insight = "One task left — finish strong.";
+    else
+      insight = `${remaining} tasks ahead. Start with "${priorityTask?.title ?? "the first one"}".`;
+
+    let nudge = null;
+    if (deferredTasks.length > 0)
+      nudge = `${deferredTasks.length} task${deferredTasks.length > 1 ? "s are" : " is"} still pending — want NORA to find the right time?`;
+    else if (totalToday === 0)
+      nudge = "Today's schedule is empty. Let NORA plan your day.";
+
+    return { priorityTask, insight, nudge };
+  }, [todayTasks, doneToday, energy, recoveryState, deferredTasks, totalToday]); // eslint-disable-line
 
   const zoomedH = Math.round(HOUR_H * zoomLevel);
   const cTop    = (h, m) => calcTop(h, m, zoomedH);
@@ -1312,26 +1364,64 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
 
         <div className="container">
           {view === "day" && (
-            <>
-              <div className="stats-bar">
-                {[
-                  { v: totalToday, l: "Today" }, { v: doneToday, l: "Done" },
-                  { v: tasks.filter((t) => !t.completed && t.date >= today).length, l: "Upcoming" },
-                  { v: tasks.filter((t) => t.completed).length, l: "All done" },
-                ].map(({ v, l }) => (
-                  <div key={l} className="stat-card">
-                    <div className="stat-value">{v}</div><div className="stat-label">{l}</div>
-                  </div>
-                ))}
+            <div className="ai-focus-panel">
+              <div className="ai-focus-top">
+                <span className="context-badge" style={{ background: `${contextMode.color}1a`, color: contextMode.color, borderColor: `${contextMode.color}40` }}>
+                  <Sparkles size={11} /> {contextMode.label}
+                </span>
+                {totalToday > 0 && (
+                  <span className="ai-done-count">{doneToday}/{totalToday} done</span>
+                )}
               </div>
+
+              {aiFocus.priorityTask ? (
+                <div className="ai-priority-wrap">
+                  <span className="ai-priority-eyebrow">Focus on next</span>
+                  <div className="ai-priority-title">{aiFocus.priorityTask.title}</div>
+                  <div className="ai-priority-meta">
+                    {aiFocus.priorityTask.startHour != null && (
+                      <span>{fmtTime(aiFocus.priorityTask.startHour, aiFocus.priorityTask.startMinute ?? 0)}</span>
+                    )}
+                    {aiFocus.priorityTask.duration && (
+                      <span>· {fmtDur(aiFocus.priorityTask.duration)}</span>
+                    )}
+                  </div>
+                  <div className="ai-priority-actions">
+                    <button className="ai-act-btn ai-act-done" onClick={() => toggleTask(aiFocus.priorityTask.id)}>
+                      <Check size={11} /> Done
+                    </button>
+                    <button className="ai-act-btn ai-act-ask" onClick={() => {
+                      setChatInput(`What's the best way to approach "${aiFocus.priorityTask.title}" right now?`);
+                      setChatOpen(true);
+                    }}>
+                      <MessageSquare size={11} /> Ask NORA
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <p className="ai-insight-text">{aiFocus.insight}</p>
+
               {totalToday > 0 && (
-                <div className="progress-wrap">
-                  <span className="progress-label">Progress</span>
-                  <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${pct}%` }} /></div>
-                  <span className="progress-pct">{pct}%</span>
+                <div className="ai-progress-bar-wrap">
+                  <div className="ai-progress-bar-fill" style={{ width: `${pct}%`, background: contextMode.color }} />
                 </div>
               )}
-            </>
+
+              <div className="ai-quick-actions">
+                <button className="ai-quick-btn" onClick={() => setChatOpen(true)}>
+                  <MessageSquare size={12} /> Chat with NORA
+                </button>
+                <button className="ai-quick-btn" onClick={() => {
+                  setChatInput(totalToday === 0
+                    ? "Plan my day for today. Consider my energy and current workload."
+                    : "What should I focus on right now?");
+                  setChatOpen(true);
+                }}>
+                  <Sparkles size={12} /> {totalToday === 0 ? "Plan my day" : "What's next?"}
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Date nav & view tabs — hidden in notes view */}
@@ -1352,8 +1442,27 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
             </div>
           </div>}
 
-          {/* Filters — hidden in notes view */}
-          {view !== "notes" && view !== "status" && <div className="filter-bar">
+          {/* Smart toolbar — day view only */}
+          {view === "day" && (
+            <div className="smart-toolbar">
+              <button
+                className={`stb-btn${!smartView ? " stb-active" : ""}`}
+                onClick={() => setSmartView((v) => !v)}
+                title={smartView ? "Switch to grid timeline" : "Switch to smart card view"}>
+                {smartView ? <List size={13} /> : <Brain size={13} />}
+                {smartView ? "Grid" : "Smart"}
+              </button>
+              <button
+                className={`stb-btn${showFilters ? " stb-active" : ""}`}
+                onClick={() => setShowFilters((f) => !f)}>
+                <Target size={13} /> Filters
+                {(filterType || filterGroup || filterComplexity) && <span className="filter-dot" />}
+              </button>
+            </div>
+          )}
+
+          {/* Filters — hidden in notes/status, collapsible in day view */}
+          {view !== "notes" && view !== "status" && (view !== "day" || showFilters) && <div className="filter-bar">
             <div className="filter-section">
               <span className="filter-label">Type</span>
               <button className={`filter-pill${filterType === null ? " active" : ""}`} onClick={() => setFilterType(null)}>All</button>
@@ -1383,7 +1492,143 @@ Everything else: direct, brief, warm — like a trusted person, not an AI.`;
           </div>}
 
           {/* ── Day view ── */}
-          {view === "day" && (
+          {view === "day" && smartView && (
+            <div className="smart-view">
+              {(() => {
+                const scheduled = filteredTodayTasks
+                  .filter((t) => t.startHour != null)
+                  .sort((a, b) => a.startHour * 60 + (a.startMinute ?? 0) - (b.startHour * 60 + (b.startMinute ?? 0)));
+                const unscheduled = filteredTodayTasks.filter((t) => t.startHour == null);
+
+                if (filteredTodayTasks.length === 0) return (
+                  <div className="smart-empty">
+                    <Sparkles size={32} style={{ opacity: .2 }} />
+                    <p>Nothing scheduled yet.</p>
+                    <button className="smart-empty-btn" onClick={() => {
+                      setChatInput("Plan my day for today based on my energy and current workload.");
+                      setChatOpen(true);
+                    }}>
+                      <Sparkles size={14} /> Plan my day with NORA
+                    </button>
+                  </div>
+                );
+
+                const nextTask = scheduled.find(
+                  (t) => !t.completed && (t.startHour * 60 + (t.startMinute ?? 0)) >= nowMins && selectedDate === today
+                );
+
+                return (
+                  <>
+                    {scheduled.map((t) => {
+                      const tp    = t.type ?? "task";
+                      const group = getGroup(t.groupId);
+                      const cx    = t.complexity ? COMPLEXITY[t.complexity] : null;
+                      const gc    = tp === "deadline" ? "#ef4444" : tp === "break" ? "#94a3b8" : group?.color ?? cx?.color ?? "var(--accent)";
+                      const isPast = selectedDate === today && (t.startHour * 60 + (t.startMinute ?? 0)) < nowMins;
+                      const isNext = t === nextTask;
+                      return (
+                        <div key={t.id}
+                          className={`smart-card${t.completed ? " sc-done" : ""}${isPast && !t.completed ? " sc-past" : ""}${isNext ? " sc-next" : ""}${tp === "break" ? " sc-break" : ""}${tp === "deadline" ? " sc-deadline" : ""}`}
+                          style={{ "--gc": gc }}>
+                          <div className="sc-time-col">
+                            <span className="sc-time">{fmtTime(t.startHour, t.startMinute ?? 0)}</span>
+                            {t.duration && <span className="sc-dur">{fmtDur(t.duration)}</span>}
+                          </div>
+                          <div className="sc-body">
+                            <div className="sc-title-row">
+                              {tp === "task" && (
+                                <button className={`chip-check sc-check${t.completed ? " checked" : ""}`}
+                                  onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
+                                  {t.completed && <Check size={9} strokeWidth={3} />}
+                                </button>
+                              )}
+                              {tp === "deadline" && <Flag size={13} style={{ color: "#ef4444", flexShrink: 0 }} />}
+                              {tp === "break" && <Coffee size={13} style={{ color: "#94a3b8", flexShrink: 0 }} />}
+                              <span className="sc-title" onClick={() => setEditingTask(t)}>
+                                {t.title || (tp === "break" ? "Break" : "Deadline")}
+                              </span>
+                              {isNext && <span className="sc-next-badge">Up next</span>}
+                            </div>
+                            {tp === "task" && !t.completed && (
+                              <div className="sc-actions">
+                                <button className="tca tca-done" onClick={() => toggleTask(t.id)}>
+                                  <Check size={10} strokeWidth={3} /> Done
+                                </button>
+                                <button className="tca tca-resched" onClick={() => askNORAtoReschedule(t)}>
+                                  <RotateCcw size={10} /> Reschedule
+                                </button>
+                                <button className="tca tca-skip" onClick={() => skipTask(t.id)}>
+                                  <SkipForward size={10} /> Skip
+                                </button>
+                                <button className="tca tca-edit" onClick={() => setEditingTask(t)}>
+                                  <Pencil size={10} /> Edit
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {unscheduled.length > 0 && (
+                      <div className="sc-unscheduled-section">
+                        <div className="sc-unsched-label"><Clock size={13} /> Unscheduled</div>
+                        <div className="sc-unsched-tasks">
+                          {unscheduled.map((t) => {
+                            const tp = t.type ?? "task";
+                            if (tp === "deadline") return (
+                              <div key={t.id} className="unsched-deadline" onClick={() => setEditingTask(t)}>
+                                <Flag size={11} /><span>{t.title || "Deadline"}</span>
+                              </div>
+                            );
+                            if (tp === "break") return (
+                              <div key={t.id} className="unsched-break" onClick={() => setEditingTask(t)}>
+                                <Coffee size={11} /><span>{t.title || "Break"}{t.duration ? ` · ${fmtDur(t.duration)}` : ""}</span>
+                              </div>
+                            );
+                            return <TaskChip key={t.id} task={t} group={getGroup(t.groupId)} onToggle={toggleTask} onReschedule={askNORAtoReschedule} onSkip={skipTask} onClick={setEditingTask} />;
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="sc-add-row">
+                      {addingAt === "unscheduled"
+                        ? <input ref={addInputRef} className="slot-input" value={addingTitle}
+                            onChange={(e) => setAddingTitle(e.target.value)}
+                            onKeyDown={(e) => handleSlotKey(e, null)}
+                            onBlur={() => commitAdd(null)}
+                            placeholder="Task name..." />
+                        : <button className="sc-add-btn" onClick={() => { setAddingAt("unscheduled"); setAddingTitle(""); }}>
+                            <Plus size={14} /> Add task
+                          </button>
+                      }
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Floating nudge bar */}
+          {view === "day" && aiFocus.nudge && !nudgeDismissed && (
+            <div className="ai-nudge-bar">
+              <Sparkles size={14} className="nudge-icon" />
+              <span className="nudge-text">{aiFocus.nudge}</span>
+              <div className="nudge-actions">
+                <button className="nudge-cta" onClick={() => {
+                  setChatInput(deferredTasks.length > 0
+                    ? `I have ${deferredTasks.length} deferred tasks. Can you help me find the right time for them this week?`
+                    : "Plan my day for today based on my energy and workload.");
+                  setChatOpen(true);
+                  setNudgeDismissed(true);
+                }}>Let's do it</button>
+                <button className="nudge-dismiss" onClick={() => setNudgeDismissed(true)}><X size={12} /></button>
+              </div>
+            </div>
+          )}
+
+          {view === "day" && !smartView && (
             <div className="timeline-wrap">
               <div className="unscheduled-section">
                 <div className="section-label"><Clock size={13} /> Unscheduled</div>
