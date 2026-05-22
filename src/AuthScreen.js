@@ -2,22 +2,45 @@ import React, { useState } from "react";
 import { supabase } from "./lib/supabase";
 import "./App.css";
 
+// Earliest plausible birthday that won't break age display
+const MIN_BIRTHDAY = "1920-01-01";
+// Must be at least 10 years old
+const maxBirthday = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 10);
+  return d.toISOString().slice(0, 10);
+};
+
 export default function AuthScreen({ dark }) {
   const [mode,     setMode]     = useState("signin");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
+  const [name,     setName]     = useState("");
+  const [birthday, setBirthday] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
   const [success,  setSuccess]  = useState("");
 
-  const switchMode = (m) => { setMode(m); setError(""); setSuccess(""); };
+  const switchMode = (m) => {
+    setMode(m); setError(""); setSuccess("");
+    setName(""); setBirthday("");
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(""); setSuccess(""); setLoading(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              name:     name.trim() || null,
+              birthday: birthday    || null,
+            },
+          },
+        });
         if (error) throw error;
         setSuccess("Account created — check your email to confirm, then sign in.");
         setMode("signin");
@@ -75,8 +98,35 @@ export default function AuthScreen({ dark }) {
             required
             minLength={6}
           />
+
+          {mode === "signup" && (
+            <>
+              <input
+                className="auth-input"
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+              <div className="auth-field">
+                <label className="auth-field-label">Birthday</label>
+                <input
+                  className="auth-input"
+                  type="date"
+                  value={birthday}
+                  onChange={(e) => setBirthday(e.target.value)}
+                  min={MIN_BIRTHDAY}
+                  max={maxBirthday()}
+                  required
+                />
+              </div>
+            </>
+          )}
+
           {error   && <p className="auth-msg auth-error">{error}</p>}
           {success && <p className="auth-msg auth-success">{success}</p>}
+
           <button className="auth-submit" type="submit" disabled={loading}>
             {loading ? "…" : mode === "signin" ? "Sign in" : "Create account"}
           </button>

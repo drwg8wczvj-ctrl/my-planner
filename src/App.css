@@ -1997,6 +1997,20 @@
 .auth-submit:hover   { opacity: .92; box-shadow: 0 6px 18px rgba(124,58,237,.45); }
 .auth-submit:disabled { opacity: .6; cursor: not-allowed; }
 
+.auth-field { display: flex; flex-direction: column; gap: 5px; }
+.auth-field-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+  padding-left: 2px;
+}
+.auth-input[type="date"] {
+  cursor: pointer;
+  color-scheme: light;
+}
+.dark .auth-input[type="date"] {
+  color-scheme: dark;
+}
+
 /* ── Sign-out & session display in sidebar ────────────────── */
 .sett-email-display {
   display: block; font-size: 13px; color: var(--text-muted);

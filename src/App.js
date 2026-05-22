@@ -330,6 +330,32 @@ export default function App() {
     })().catch(console.error);
   }, [session]); // eslint-disable-line
 
+  // Load user profile (name + birthday) from Supabase on login
+  // Also syncs auth.user_metadata → user_profile table so it appears in the dashboard
+  useEffect(() => {
+    if (!session) return;
+    const meta = session.user?.user_metadata ?? {};
+    const upsertData = { user_id: session.user.id };
+    if (meta.name)     upsertData.name     = meta.name;
+    if (meta.birthday) upsertData.birthday = meta.birthday;
+    upsertData.updated_at = new Date().toISOString();
+
+    supabase.from("user_profile")
+      .upsert(upsertData, { onConflict: "user_id" })
+      .then(() =>
+        supabase.from("user_profile")
+          .select("name, birthday")
+          .eq("user_id", session.user.id)
+          .single()
+      )
+      .then(({ data }) => {
+        if (!data) return;
+        setUserProfile(data);
+        if (data.name && !accountName) setAccountName(data.name);
+      })
+      .catch(console.error);
+  }, [session]); // eslint-disable-line
+
   const [tasks,        setTasks]        = useLocalStorage("nora_tasks", []);
   const [groups,       setGroups]       = useLocalStorage("nora_groups", DEFAULT_GROUPS);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -373,6 +399,7 @@ export default function App() {
   const [reminderMins,   setReminderMins]   = useLocalStorage("nora_reminder_mins", 5);
   const [relaxation,     setRelaxation]     = useLocalStorage("nora_relaxation", 5);
   const [energy,         setEnergy]         = useLocalStorage("nora_energy", 5);
+  const [userProfile,    setUserProfile]    = useState({});
   const [notifPermission, setNotifPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "denied"
   );
@@ -742,6 +769,81 @@ export default function App() {
     return { priorityTask, insight, nudge };
   }, [todayTasks, doneToday, energy, recoveryState, deferredTasks, totalToday]); // eslint-disable-line
 
+  const userAge = useMemo(() => {
+    if (!userProfile?.birthday) return null;
+    const bday = new Date(userProfile.birthday + "T00:00:00");
+    const now  = new Date();
+    let age = now.getFullYear() - bday.getFullYear();
+    if (now.getMonth() < bday.getMonth() ||
+        (now.getMonth() === bday.getMonth() && now.getDate() < bday.getDate())) age--;
+    return age >= 0 ? age : null;
+  }, [userProfile]);
+
+  const predictiveSignals = useMemo(() => {
+    const insights = [];
+
+    // Rule A — Overload prevention
+    // Heavy day coming + momentum already unstable → prevent the crunch
+    const heavyUpcoming = workloadForecast.slice(1, 4).find((d) => d.level === "heavy");
+    if (heavyUpcoming && ["unstable", "overloaded", "recovery"].includes(momentum.state)) {
+      insights.push({
+        type: "warning",
+        confidence: momentum.state === "overloaded" ? "HIGH" : "MEDIUM",
+        message: `${heavyUpcoming.label} looks heavy and your recent rhythm is inconsistent — moving 1–2 tasks earlier prevents the crunch.`,
+        ruleId: "overload_prevention",
+      });
+    }
+
+    // Rule B — Procrastination detection
+    // Avoided task past 3 days → proactively surface micro-start
+    if (mostAvoided && mostAvoided.daysOverdue >= 3) {
+      insights.push({
+        type: "micro-start",
+        confidence: mostAvoided.daysOverdue >= 7 ? "HIGH" : "MEDIUM",
+        message: `"${mostAvoided.task.title}" has been waiting ${mostAvoided.daysOverdue} days — a 5-minute start now breaks the pattern.`,
+        ruleId: "procrastination_detected",
+      });
+    }
+
+    // Rule C — Energy mismatch
+    // Peak performance is NOT afternoon, but hard tasks are scheduled in afternoon
+    if (focusPatterns && focusPatterns.peak.key !== "afternoon") {
+      const afternoonHard = todayTasks.filter(
+        (t) => !t.completed && t.complexity === "hard" &&
+               t.startHour != null && t.startHour >= 12 && t.startHour < 17
+      );
+      if (afternoonHard.length > 0) {
+        insights.push({
+          type: "optimization",
+          confidence: focusPatterns.peakPct >= 50 ? "HIGH" : "MEDIUM",
+          message: `"${afternoonHard[0].title}" is scheduled for the afternoon, but your focus peaks in the ${focusPatterns.peak.label.toLowerCase()} — consider moving it.`,
+          ruleId: "energy_mismatch",
+        });
+      }
+    }
+
+    // Rule D — Recovery prediction
+    // Recovery/overload state + dropping trend + non-light tomorrow → suggest lighter day
+    if (["mild", "high", "recovery", "burnout"].includes(recoveryState.level) &&
+        (weekTrend === "declining" || ["overloaded", "unstable"].includes(momentum.state))) {
+      const tomorrow = workloadForecast[1];
+      if (tomorrow && (tomorrow.level === "heavy" || tomorrow.level === "moderate")) {
+        insights.push({
+          type: "warning",
+          confidence: ["burnout", "recovery"].includes(recoveryState.level) ? "HIGH" : "MEDIUM",
+          message: `You're showing signs of overextension — a lighter ${tomorrow.label} helps more than pushing through.`,
+          ruleId: "recovery_predicted",
+        });
+      }
+    }
+
+    // Sort HIGH confidence first, cap at 2
+    const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    return insights
+      .sort((a, b) => order[a.confidence] - order[b.confidence])
+      .slice(0, 2);
+  }, [workloadForecast, momentum, mostAvoided, focusPatterns, todayTasks, recoveryState, weekTrend]); // eslint-disable-line
+
   const zoomedH = Math.round(HOUR_H * zoomLevel);
   const cTop    = (h, m) => calcTop(h, m, zoomedH);
 
@@ -935,6 +1037,15 @@ export default function App() {
     }
 
     const prefsLines = [];
+    if (userProfile?.name) prefsLines.push(`Name: ${userProfile.name} — use their name occasionally, not on every response`);
+    if (userAge != null) {
+      const ageCtx = userAge < 22 ? "student or early career — building habits and managing energy are key"
+        : userAge < 30 ? "late 20s — career momentum and sustainable routines matter"
+        : userAge < 40 ? "30s — efficiency, work-life balance, and deep work are priorities"
+        : userAge < 55 ? "mid-career — sustainable pace and meaningful prioritization matter most"
+        : "experienced — depth over volume, recovery awareness is especially important";
+      prefsLines.push(`Age: ${userAge} (${ageCtx})`);
+    }
     if (userPrefs.peak_hours)              prefsLines.push(`Peak productive hours: ${userPrefs.peak_hours}`);
     if (userPrefs.preferred_session_mins)  prefsLines.push(`Preferred session: ${userPrefs.preferred_session_mins} min`);
     if (userPrefs.work_style && userPrefs.work_style !== "flexible")
@@ -995,6 +1106,17 @@ Primary state: ${noraState.label} [${noraState.confidence} confidence]
 
 This is the single state driving all AI behavior today. Use it as the primary lens.
 Secondary signals (momentum, recovery) are provided below for nuance only.
+
+━━━ PREDICTIVE SIGNALS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${predictiveSignals.length > 0
+  ? predictiveSignals.map((s) => `[${s.confidence}] ${s.type.toUpperCase()}: ${s.message}`).join("\n")
+  : "(none — system is stable)"}
+
+${predictiveSignals.some((s) => s.confidence === "HIGH")
+  ? "→ HIGH confidence signals: raise proactively without waiting for user request. Mention once, calmly — not as an alarm."
+  : "→ MEDIUM signals: mention only if contextually relevant to the current message. Never force them."}
+Max 1–2 suggestions per response. Never stack warnings. Never use urgency language.
 
 ━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
 Momentum:       ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg)` : ""}  — ${momentum.desc}
@@ -1295,7 +1417,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
       toggleTask, skipTask, askNORAtoReschedule, saveTask, deleteTask,
       addNote: (text) => setNotes((p) => [...p, { id: uid(), content: text, done: false, createdAt: Date.now() }]),
       toggleNote, updateNote, deleteNote, getGroup,
-      userPrefs, setUserPrefs, noraState, behaviorProfile,
+      userPrefs, setUserPrefs, noraState, behaviorProfile, predictiveSignals,
     };
     return <MobileApp ctx={mobileCtx} />;
   }
