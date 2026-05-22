@@ -298,18 +298,6 @@ export default function App() {
     }).catch(console.error);
   }, [session]); // eslint-disable-line
 
-  // Sync all app data to Supabase 1 s after the last change
-  useEffect(() => {
-    if (!session) return;
-    clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => {
-      saveUserData({
-        tasks, groups, notes,
-        preferences: { accountName, dark, reminderMins, relaxation, energy },
-      }).catch(console.error);
-    }, 1000);
-  }, [tasks, groups, notes, accountName, dark, reminderMins, relaxation, energy]); // eslint-disable-line
-
   const [tasks,        setTasks]        = useLocalStorage("nora_tasks", []);
   const [groups,       setGroups]       = useLocalStorage("nora_groups", DEFAULT_GROUPS);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -368,6 +356,18 @@ export default function App() {
   const nowObj      = tick;
   const today       = fmtDate(tick);
   const currentHour = tick.getHours();
+
+  // Sync all app data to Supabase 1 s after the last change
+  useEffect(() => {
+    if (!session) return;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      saveUserData({
+        tasks, groups, notes,
+        preferences: { accountName, dark, reminderMins, relaxation, energy },
+      }).catch(console.error);
+    }, 1000);
+  }, [tasks, groups, notes, accountName, dark, reminderMins, relaxation, energy]); // eslint-disable-line
 
   // ── Repeat-aware task lookup ─────────────────────────
   const getTasksForDate = (date) => {
