@@ -18,7 +18,9 @@ import {
   Brain, Target, Lightbulb, BarChart2, AlertTriangle,
   Pencil, SkipForward, Sparkles,
 } from "lucide-react";
+import { calculateTaskWeight } from "./utils/taskUtils";
 import "./App.css";
+import "./glass.css";
 
 // ── Constants ──────────────────────────────────────────
 const COMPLEXITY = {
@@ -40,7 +42,7 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December",
 ];
 
-const HOURS  = Array.from({ length: 18 }, (_, i) => i + 6);
+const HOURS  = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_H = 56; // px per hour in Apple-calendar style grid
 const LABEL_W = 60; // px for time label column
 
@@ -205,7 +207,7 @@ const AI_TOOLS = [
           title:       { type: "string" },
           date:        { type: "string",  description: "YYYY-MM-DD" },
           type:        { type: "string",  enum: ["task","deadline","break"], description: "REQUIRED: 'task' for work/study items, 'deadline' for fixed external events (exam day, submission), 'break' for rest/recovery blocks." },
-          startHour:   { type: "number",  description: "6-23, omit for unscheduled" },
+          startHour:   { type: "number",  description: "0-23, omit for unscheduled" },
           startMinute: { type: "number",  description: "0-55 in 5-min steps" },
           duration:    { type: "number",  description: "Duration in minutes, e.g. 30, 60" },
           repeat:      { type: "string",  enum: ["daily","weekly","monthly"], description: "Repeat frequency" },
@@ -311,6 +313,7 @@ export default function App() {
       if (p.reminderMins != null) setReminderMins(p.reminderMins);
       if (p.relaxation   != null) setRelaxation(p.relaxation);
       if (p.energy       != null) setEnergy(p.energy);
+      if (p.theme        != null) setTheme(p.theme);
     }).catch(console.error);
   }, [session]); // eslint-disable-line
 
@@ -397,6 +400,7 @@ export default function App() {
   const [notifEnabled,   setNotifEnabled]   = useLocalStorage("nora_notif_enabled", false);
   const [accountName,    setAccountName]    = useLocalStorage("nora_account_name", "");
   const [reminderMins,   setReminderMins]   = useLocalStorage("nora_reminder_mins", 5);
+  const [theme,          setTheme]          = useLocalStorage("nora_theme", "default");
   const [relaxation,     setRelaxation]     = useLocalStorage("nora_relaxation", 5);
   const [energy,         setEnergy]         = useLocalStorage("nora_energy", 5);
   const [userProfile,    setUserProfile]    = useState({});
@@ -428,10 +432,10 @@ export default function App() {
     syncTimer.current = setTimeout(() => {
       saveUserData({
         tasks, groups, notes,
-        preferences: { accountName, dark, reminderMins, relaxation, energy },
+        preferences: { accountName, dark, reminderMins, relaxation, energy, theme },
       }).catch(console.error);
     }, 1000);
-  }, [tasks, groups, notes, accountName, dark, reminderMins, relaxation, energy]); // eslint-disable-line
+  }, [tasks, groups, notes, accountName, dark, reminderMins, relaxation, energy, theme]); // eslint-disable-line
 
   // ── Repeat-aware task lookup ─────────────────────────
   const getTasksForDate = (date) => {
@@ -474,12 +478,51 @@ export default function App() {
 
   // ── Behavioral intelligence ─────────────────────────────────────
 
-  const momentum = useMemo(() => {
-    const days = Array.from({ length: 14 }, (_, i) => {
+  // ── Cognitive load weights ──────────────────────────────────────
+  const taskWeights = useMemo(() => {
+    const map = {};
+    tasks.forEach((t) => { map[t.id] = calculateTaskWeight(t, today); });
+    return map;
+  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── User load baseline — rolling 14-day calibration ────────────
+  const userLoadBaseline = useMemo(() => {
+    const saved = userPrefs.load_baseline ?? null;
+    const days14 = Array.from({ length: 14 }, (_, i) => {
       const date = fmtDate(addDays(today, i - 13));
       const dayT = tasks.filter((t) => t.date === date && t.type !== "break");
-      const done = dayT.filter((t) => t.completed).length;
-      return { date, total: dayT.length, done, rate: dayT.length > 0 ? done / dayT.length : null };
+      const totalW = dayT.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      const doneW  = dayT.filter((t) => t.completed).reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      return { totalW, doneW, hasData: dayT.length > 0 };
+    }).filter((d) => d.hasData);
+
+    // Not enough history — use saved baseline or sensible defaults
+    if (days14.length < 3) {
+      return saved ?? {
+        avgDailyWeight: 12, avgCompletionWeight: 9,
+        maxSustainableWeight: 15, overloadThreshold: 19, heavyDayThreshold: 15,
+      };
+    }
+
+    const avgDailyWeight      = days14.reduce((s, d) => s + d.totalW, 0) / days14.length;
+    const avgCompletionWeight = days14.reduce((s, d) => s + d.doneW,  0) / days14.length;
+    return {
+      avgDailyWeight:       Math.round(avgDailyWeight),
+      avgCompletionWeight:  Math.round(avgCompletionWeight),
+      maxSustainableWeight: Math.round(avgDailyWeight * 1.25),
+      overloadThreshold:    Math.round(avgDailyWeight * 1.6),
+      heavyDayThreshold:    Math.round(avgDailyWeight * 1.25),
+    };
+  }, [tasks, today, taskWeights, userPrefs.load_baseline]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Momentum — weighted completion rate ─────────────────────────
+  const momentum = useMemo(() => {
+    const days = Array.from({ length: 14 }, (_, i) => {
+      const date   = fmtDate(addDays(today, i - 13));
+      const dayT   = tasks.filter((t) => t.date === date && t.type !== "break");
+      const totalW = dayT.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      const doneW  = dayT.filter((t) => t.completed).reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      return { date, total: dayT.length, totalW, doneW, rate: totalW > 0 ? doneW / totalW : null };
     });
     const rated = days.filter((d) => d.rate !== null);
     if (rated.length < 2) return { state: "new", label: "Just Starting", desc: "Build a few days of history and NORA will start recognising patterns.", color: "var(--accent)", score: null };
@@ -489,28 +532,34 @@ export default function App() {
     const rAvg   = avg(recent);
     const pAvg   = avg(prior) ?? rAvg;
     const trend  = rAvg - pAvg;
-    const avgLoad = recent.reduce((s, d) => s + d.total, 0) / recent.length;
-    if (rAvg < 0.40 && avgLoad > 4)   return { state: "overloaded", label: "Overloaded",      desc: "Schedule exceeds your current capacity. Remove or defer tasks — consistency beats volume.", color: "#ef4444", score: rAvg };
-    if (rAvg >= 0.65 && trend >  0.08) return { state: "rising",    label: "Rising",           desc: "Momentum is building. Protect this energy and keep sessions predictable.",                color: "#22c55e", score: rAvg };
-    if (rAvg >= 0.55 && Math.abs(trend) <= 0.12) return { state: "stable", label: "Stable",    desc: "Consistent and reliable. Steady momentum is more sustainable than burst performance.",   color: "#3b82f6", score: rAvg };
-    if (trend < -0.20 && pAvg > 0.55) return { state: "recovery",   label: "Recovery Phase",   desc: "You slipped after a strong stretch — that's natural. A lighter day resets the system.",  color: "#f59e0b", score: rAvg };
-    if (trend >  0.12)                 return { state: "rising",     label: "Recovering",       desc: "Turning around. Each completed task rebuilds the pattern.",                              color: "#22c55e", score: rAvg };
+    const avgWeightedLoad = recent.reduce((s, d) => s + d.totalW, 0) / recent.length;
+    const overloadThresh  = userLoadBaseline.overloadThreshold;
+    if (rAvg < 0.40 && avgWeightedLoad > overloadThresh) return { state: "overloaded", label: "Overloaded",      desc: "Cognitive load exceeds your current capacity. Remove or defer tasks — consistency beats volume.", color: "#ef4444", score: rAvg };
+    if (rAvg >= 0.65 && trend >  0.08) return { state: "rising",    label: "Rising",         desc: "Momentum is building. Protect this energy and keep sessions predictable.",               color: "#22c55e", score: rAvg };
+    if (rAvg >= 0.55 && Math.abs(trend) <= 0.12) return { state: "stable", label: "Stable", desc: "Consistent and reliable. Steady momentum is more sustainable than burst performance.",  color: "#3b82f6", score: rAvg };
+    if (trend < -0.20 && pAvg > 0.55) return { state: "recovery",  label: "Recovery Phase",  desc: "You slipped after a strong stretch — that's natural. A lighter day resets the system.", color: "#f59e0b", score: rAvg };
+    if (trend >  0.12)                 return { state: "rising",    label: "Recovering",      desc: "Turning around. Each completed task rebuilds the pattern.",                             color: "#22c55e", score: rAvg };
     return { state: "unstable", label: "Unstable", desc: "Inconsistent pattern. Fewer, smaller, well-timed tasks work better than an ambitious list.", color: "#f59e0b", score: rAvg };
-  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tasks, today, taskWeights, userLoadBaseline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const workloadForecast = useMemo(() => Array.from({ length: 7 }, (_, i) => {
-    const date  = fmtDate(addDays(today, i));
-    const dayT  = tasks.filter((t) => t.date === date && t.type !== "break");
-    const mins  = dayT.filter((t) => t.duration).reduce((s, t) => s + t.duration, 0);
-    const load  = dayT.length;
-    const d     = new Date(date + "T00:00:00");
-    const level = load > 6 || mins > 360 ? "heavy" : load > 3 || mins > 180 ? "moderate" : load > 0 ? "light" : "free";
+    const date         = fmtDate(addDays(today, i));
+    const dayT         = tasks.filter((t) => t.date === date && t.type !== "break");
+    const mins         = dayT.filter((t) => t.duration).reduce((s, t) => s + t.duration, 0);
+    const load         = dayT.length;
+    const weightedLoad = dayT.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+    const d            = new Date(date + "T00:00:00");
+    const heavyT  = userLoadBaseline.overloadThreshold;
+    const modT    = userLoadBaseline.heavyDayThreshold;
+    const level   = weightedLoad >= heavyT ? "heavy"
+      : weightedLoad >= modT ? "moderate"
+      : weightedLoad > 0     ? "light" : "free";
     return {
-      date, load, mins, level,
+      date, load, mins, weightedLoad, level,
       label:   i === 0 ? "Today" : i === 1 ? "Tmr" : ["Su","Mo","Tu","We","Th","Fr","Sa"][d.getDay()],
       isToday: i === 0,
     };
-  }), [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [tasks, today, taskWeights, userLoadBaseline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const focusPatterns = useMemo(() => {
     const doneT = tasks.filter((t) => t.completed && t.startHour != null && t.type !== "break");
@@ -555,34 +604,37 @@ export default function App() {
     return recs.slice(0, 3);
   }, [momentum, focusPatterns, workloadForecast, mostAvoided, energy, relaxation]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Recovery intelligence ───────────────────────────────────────
+  // ── Recovery intelligence — weighted signals ────────────────────
   const recoveryState = useMemo(() => {
-    const last7      = Array.from({ length: 7 }, (_, i) => {
-      const date = fmtDate(addDays(today, i - 6));
-      const dayT = tasks.filter((t) => t.date === date && t.type !== "break");
-      const done = dayT.filter((t) => t.completed).length;
-      return { total: dayT.length, done, rate: dayT.length > 0 ? done / dayT.length : null };
+    const last7 = Array.from({ length: 7 }, (_, i) => {
+      const date   = fmtDate(addDays(today, i - 6));
+      const dayT   = tasks.filter((t) => t.date === date && t.type !== "break");
+      const totalW = dayT.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      const doneW  = dayT.filter((t) => t.completed).reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      return { totalW, doneW, rate: totalW > 0 ? doneW / totalW : null };
     });
-    const overdueCount = tasks.filter((t) => !t.completed && t.date < today && t.type !== "break").length;
-    const recentRated  = last7.filter((d) => d.rate !== null);
-    const recentAvg    = recentRated.length > 0 ? recentRated.reduce((s, d) => s + d.rate, 0) / recentRated.length : 1;
-    const avgLoad      = last7.reduce((s, d) => s + d.total, 0) / 7;
-    const lateNight    = tasks.filter((t) => t.completed && t.startHour != null && t.startHour >= 21).length;
-    const avoidRate    = overdueCount / Math.max(tasks.length, 1);
+    const overdueTasks     = tasks.filter((t) => !t.completed && t.date < today && t.type !== "break");
+    const overdueWeight    = overdueTasks.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+    const recentRated      = last7.filter((d) => d.rate !== null);
+    const recentAvg        = recentRated.length > 0 ? recentRated.reduce((s, d) => s + d.rate, 0) / recentRated.length : 1;
+    const avgWeightedLoad  = last7.reduce((s, d) => s + d.totalW, 0) / 7;
+    const lateNight        = tasks.filter((t) => t.completed && t.startHour != null && t.startHour >= 21).length;
+    const avoidWeightRatio = overdueWeight / Math.max(tasks.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0), 1);
+    const overloadT        = userLoadBaseline.overloadThreshold;
 
     let score = 100;
     if (recentRated.length > 0) score -= (1 - recentAvg) * 40;
-    score -= Math.min(28, overdueCount * 2.5);
-    score -= Math.min(18, avoidRate * 36);
-    if (lateNight >= 3) score -= 10;
-    if (avgLoad > 6)    score -= 8;
+    score -= Math.min(28, (overdueWeight / 3) * 2.5);   // weighted overdue (normalized to ~task count)
+    score -= Math.min(18, avoidWeightRatio * 36);
+    if (lateNight >= 3)              score -= 10;
+    if (avgWeightedLoad > overloadT) score -= 10;        // sustained weighted overload penalty
 
     if (score >= 78) return { level: "stable",   label: "Stable",             color: "#22c55e", desc: "Output and recovery are balanced. You're in a sustainable rhythm.",                                                   advice: null };
     if (score >= 58) return { level: "mild",     label: "Mild Overload",       color: "#f59e0b", desc: "A few signals suggest the pace is slightly unsustainable.",                                                          advice: "Trim 1–2 tasks this week and protect at least one longer break." };
-    if (score >= 38) return { level: "high",     label: "High Cognitive Load", color: "#f97316", desc: "Your schedule has consistently exceeded comfortable capacity.",                                                       advice: "Reduce daily task count by ~30%. Focus only on what genuinely moves things forward." };
+    if (score >= 38) return { level: "high",     label: "High Cognitive Load", color: "#f97316", desc: "Your schedule has consistently exceeded comfortable capacity.",                                                       advice: "Reduce daily cognitive load by ~30%. Focus only on what genuinely moves things forward." };
     if (score >= 18) return { level: "recovery", label: "Recovery Needed",     color: "#ef4444", desc: "Sustained pressure is reducing effectiveness. Recovery actively improves long-term output.",                         advice: "Protect the next day as near-rest. One essential task only." };
     return              { level: "burnout",  label: "Burnout Risk",        color: "#dc2626", desc: "Patterns suggest significant cumulative exhaustion. Rest is more productive than pushing through.",                  advice: "Pause non-essential tasks entirely. Rest today. Rebuild from a lighter baseline tomorrow." };
-  }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tasks, today, taskWeights, userLoadBaseline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Adaptive plan data — learns from completion history ─────────
   const adaptivePlanData = useMemo(() => {
@@ -681,20 +733,26 @@ export default function App() {
   }, [tasks, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const noraState = useMemo(() => {
-    const heavyForecast = workloadForecast.some((d) => d.level === "heavy");
+    const todayForecast   = workloadForecast[0];
+    const heavyForecast   = workloadForecast.some((d) => d.level === "heavy");
+    const overdueWeight   = tasks
+      .filter((t) => !t.completed && t.date < today && t.type !== "break")
+      .reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+    const highOverdueCogLoad = overdueWeight >= userLoadBaseline.heavyDayThreshold;
+
     if (recoveryState.level === "burnout" || recoveryState.level === "recovery")
       return { key: "recovery_day",      label: "Recovery Day",      color: "#ef4444", confidence: "HIGH" };
-    if (momentum.state === "overloaded")
+    if (momentum.state === "overloaded" || highOverdueCogLoad)
       return { key: "high_load",         label: "High Load",         color: "#f97316",
-               confidence: heavyForecast ? "HIGH" : "MEDIUM" };
-    if (energy >= 7 && relaxation >= 7)
+               confidence: (heavyForecast || highOverdueCogLoad) ? "HIGH" : "MEDIUM" };
+    if (energy >= 7 && relaxation >= 7 && todayForecast?.level !== "heavy")
       return { key: "peak_focus",        label: "Peak Focus",        color: "#22c55e", confidence: "HIGH" };
     if (momentum.state === "rising")
       return { key: "building_momentum", label: "Building Momentum", color: "#3b82f6", confidence: "MEDIUM" };
     if (momentum.state === "stable")
       return { key: "steady_flow",       label: "Steady Flow",       color: "#8b5cf6", confidence: "HIGH" };
     return   { key: "focus_mode",        label: "Focus Mode",        color: "var(--accent)", confidence: "MEDIUM" };
-  }, [recoveryState, momentum, energy, relaxation, workloadForecast]); // eslint-disable-line
+  }, [recoveryState, momentum, energy, relaxation, workloadForecast, tasks, today, taskWeights, userLoadBaseline]); // eslint-disable-line
 
   const contextMode = noraState; // UI alias — keeps all existing JSX working
 
@@ -716,8 +774,26 @@ export default function App() {
       : recoveryState.level === "recovery" ? "slow" : "n/a";
     const confidence = sampleSize >= 40 ? "HIGH"
       : sampleSize >= 15 ? "MEDIUM" : "EXPERIMENTAL";
-    return { work_style, completion_consistency, overload_response, restart_speed, confidence, sampleSize };
-  }, [tasks, momentum, recoveryState]); // eslint-disable-line
+
+    // Stress response pattern — Part 5
+    const overloadT = userLoadBaseline.overloadThreshold;
+    const days14 = Array.from({ length: 14 }, (_, i) => {
+      const date   = fmtDate(addDays(today, i - 13));
+      const dayT   = tasks.filter((t) => t.date === date && t.type !== "break");
+      const totalW = dayT.reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      const doneW  = dayT.filter((t) => t.completed).reduce((s, t) => s + (taskWeights[t.id] ?? 3), 0);
+      return { totalW, doneW, rate: totalW > 0 ? doneW / totalW : null };
+    }).filter((d) => d.rate !== null);
+    const overloadDays = days14.filter((d) => d.totalW > overloadT);
+    let stress_response_pattern = "stable";
+    if (overloadDays.length >= 2) {
+      const avgRate = overloadDays.reduce((s, d) => s + d.rate, 0) / overloadDays.length;
+      stress_response_pattern = avgRate >= 0.6 ? "resilient"
+        : avgRate >= 0.35 ? "overload_sensitive" : "overload_sensitive";
+    }
+
+    return { work_style, completion_consistency, overload_response, restart_speed, confidence, sampleSize, stress_response_pattern };
+  }, [tasks, momentum, recoveryState, taskWeights, userLoadBaseline, today]); // eslint-disable-line
 
   // Auto-save behavior profile snapshot to persistent preferences
   useEffect(() => {
@@ -725,15 +801,30 @@ export default function App() {
     setUserPrefs((prev) => {
       const bp = prev.behavior_profile;
       const changed = !bp
-        || bp.work_style             !== behaviorProfile.work_style
-        || bp.completion_consistency !== behaviorProfile.completion_consistency
-        || bp.confidence             !== behaviorProfile.confidence;
+        || bp.work_style              !== behaviorProfile.work_style
+        || bp.completion_consistency  !== behaviorProfile.completion_consistency
+        || bp.confidence              !== behaviorProfile.confidence
+        || bp.stress_response_pattern !== behaviorProfile.stress_response_pattern;
       if (!changed) return prev;
       const updated = { ...prev, behavior_profile: behaviorProfile };
       saveUserPreferences(updated).catch(console.warn);
       return updated;
     });
   }, [session, behaviorProfile]); // eslint-disable-line
+
+  // Auto-save load baseline when it shifts meaningfully
+  useEffect(() => {
+    if (!session) return;
+    setUserPrefs((prev) => {
+      const saved = prev.load_baseline;
+      if (saved
+        && saved.avgDailyWeight     === userLoadBaseline.avgDailyWeight
+        && saved.overloadThreshold  === userLoadBaseline.overloadThreshold) return prev;
+      const updated = { ...prev, load_baseline: userLoadBaseline };
+      saveUserPreferences(updated).catch(console.warn);
+      return updated;
+    });
+  }, [session, userLoadBaseline]); // eslint-disable-line
 
   const aiFocus = useMemo(() => {
     const incomplete = todayTasks.filter((t) => !t.completed && t.type !== "break");
@@ -1119,14 +1210,18 @@ ${predictiveSignals.some((s) => s.confidence === "HIGH")
 Max 1–2 suggestions per response. Never stack warnings. Never use urgency language.
 
 ━━━ BEHAVIORAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━
-Momentum:       ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% avg)` : ""}  — ${momentum.desc}
+Momentum:          ${momentum.label}${momentum.score != null ? ` (${Math.round(momentum.score * 100)}% weighted avg)` : ""}  — ${momentum.desc}
 Recovery:          ${recoveryState.label} — ${recoveryState.desc}
 Most avoided:      ${mostAvoided ? `"${mostAvoided.task.title}" (${mostAvoided.daysOverdue}d deferred)` : "(none)"}
 Work style:        ${behaviorProfile.work_style}
-Consistency:       ${behaviorProfile.completion_consistency != null ? `${behaviorProfile.completion_consistency}% (14-day avg)` : "not enough data"}
+Consistency:       ${behaviorProfile.completion_consistency != null ? `${behaviorProfile.completion_consistency}% (14-day weighted avg)` : "not enough data"}
 Overload pattern:  ${behaviorProfile.overload_response}
+Stress response:   ${behaviorProfile.stress_response_pattern}
 Restart speed:     ${behaviorProfile.restart_speed}
 Data confidence:   ${behaviorProfile.confidence} (${behaviorProfile.sampleSize} tasks sampled)
+
+Cognitive load (today): ${workloadForecast[0]?.weightedLoad ?? 0} pts · Baseline avg: ${userLoadBaseline.avgDailyWeight} pts/day · Overload threshold: ${userLoadBaseline.overloadThreshold} pts
+(Load is weighted by task complexity, duration, keywords and urgency — not raw task count)
 ${prefsBlock}
 ━━━ CURRENT WELLNESS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1374,7 +1469,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
 
   // ── Landing page ──────────────────────────────────────
   if (showLanding) return (
-    <div className={`app landing-page${dark ? " dark" : ""}`}>
+    <div className={`app landing-page${dark ? " dark" : ""}${theme === "liquid_glass" ? " glass" : ""}`}>
       <div className="landing-content">
         <div className="landing-logo-mark">
           <CalendarDays size={36} />
@@ -1396,11 +1491,11 @@ Everything else → as short as possible. If nothing notable to add, don't add i
 
   // ── Auth guard ────────────────────────────────────────
   if (authLoading) return (
-    <div className={`app${dark ? " dark" : ""} auth-loading-wrap`}>
+    <div className={`app${dark ? " dark" : ""}${theme === "liquid_glass" ? " glass" : ""} auth-loading-wrap`}>
       <div className="auth-spinner" />
     </div>
   );
-  if (!session) return <AuthScreen dark={dark} />;
+  if (!session) return <AuthScreen dark={dark} glass={theme === "liquid_glass"} />;
 
   // ── Mobile layout ─────────────────────────────────────
   if (isMobile) {
@@ -1424,7 +1519,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
 
   // ── Desktop render ────────────────────────────────────
   return (
-    <div className={`app${dark ? " dark" : ""}`}>
+    <div className={`app${dark ? " dark" : ""}${theme === "liquid_glass" ? " glass" : ""}`}>
 
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
 
@@ -1460,6 +1555,13 @@ Everything else → as short as possible. If nothing notable to add, don't add i
               <div className="sett-row">
                 <span className="sett-label">Dark Mode</span>
                 <button className={`theme-toggle${dark ? " on" : ""}`} onClick={() => setDark((d) => !d)} />
+              </div>
+              <div className="sett-field">
+                <label className="sett-field-lbl">Appearance</label>
+                <div className="theme-pill-group">
+                  <button className={`theme-pill${theme === "default" ? " active" : ""}`} onClick={() => setTheme("default")}>Default</button>
+                  <button className={`theme-pill${theme === "liquid_glass" ? " active" : ""}`} onClick={() => setTheme("liquid_glass")}>✦ Liquid Glass</button>
+                </div>
               </div>
               <div className="sett-row">
                 <span className="sett-label">Notifications</span>

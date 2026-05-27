@@ -27,7 +27,7 @@ const maxBirthday = () => {
   return d.toISOString().slice(0, 10);
 };
 
-export default function AuthScreen({ dark }) {
+export default function AuthScreen({ dark, glass }) {
   const [mode,     setMode]     = useState("signin");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -84,7 +84,7 @@ export default function AuthScreen({ dark }) {
   };
 
   return (
-    <div className={`app${dark ? " dark" : ""} auth-wrap`}>
+    <div className={`app${dark ? " dark" : ""}${glass ? " glass" : ""} auth-wrap`}>
       <div className="auth-card">
 
         <div className="auth-brand">
