@@ -373,8 +373,6 @@ export default function App() {
   const [addingTitle, setAddingTitle] = useState("");
   const addInputRef  = useRef(null);
   const timelineRef  = useRef(null);
-  const navRef       = useRef(null);
-  const [navIndicator, setNavIndicator] = useState({ top: 0, height: 44, opacity: 0 });
   const [editingTask, setEditingTask] = useState(null);
   const [draft,       setDraft]       = useState(null);
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -951,14 +949,6 @@ export default function App() {
       }, 120);
     }
   }, [view, selectedDate, zoomedH]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const nav = navRef.current;
-    if (!nav) return;
-    const active = nav.querySelector(".snav-btn.active");
-    if (!active) return;
-    setNavIndicator({ top: active.offsetTop, height: active.offsetHeight, opacity: 1 });
-  }, [view]);
 
   useEffect(() => { if (addingAt !== null) addInputRef.current?.focus(); }, [addingAt]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatLoading]);
@@ -1548,12 +1538,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
           <button className="sidebar-close" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
         </div>
 
-        <nav className="sidebar-nav" ref={navRef}>
-          <div className="snav-indicator" style={{
-            top:     navIndicator.top,
-            height:  navIndicator.height,
-            opacity: navIndicator.opacity,
-          }} />
+        <nav className="sidebar-nav">
           {[["day","Day View",<CalendarDays size={16} />],["month","Month View",<CalendarDays size={16} />],["list","All Tasks",<List size={16} />],["notes","Notes",<FileText size={16} />],["status","My Status",<Activity size={16} />]].map(([v,label,icon]) => (
             <button key={v} className={`snav-btn${view === v ? " active" : ""}`}
               onClick={() => { setView(v); setSidebarOpen(false); }}>
@@ -1729,6 +1714,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
               <button className="nav-btn" onClick={() => view === "month" ? shiftMo(1) : shiftDate(1)}><ChevronRight size={16} /></button>
             </div>
             <div className="view-tabs">
+              <div className={`tab-slider tab-slider-${view === "day" ? 0 : view === "month" ? 1 : 2}`} />
               <button className={`tab-btn${view === "day"   ? " active" : ""}`} onClick={() => setView("day")}>Day</button>
               <button className={`tab-btn${view === "month" ? " active" : ""}`} onClick={() => setView("month")}>Month</button>
               <button className={`tab-btn${view === "list"  ? " active" : ""}`} onClick={() => setView("list")}>All</button>

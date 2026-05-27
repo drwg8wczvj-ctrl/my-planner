@@ -190,32 +190,19 @@
   padding: 12px 8px;
   display: flex; flex-direction: column; gap: 2px;
   flex-shrink: 0;
-  position: relative;
-}
-.snav-indicator {
-  position: absolute;
-  left: 0; right: 0;
-  background: var(--accent-light);
-  border-radius: 10px;
-  border: 1px solid rgba(124,58,237,0.22);
-  pointer-events: none;
-  z-index: 0;
-  transition:
-    top     0.32s cubic-bezier(0.35, 1.2, 0.45, 1),
-    height  0.20s ease,
-    opacity 0.16s ease;
 }
 .snav-btn {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 11px 12px; border-radius: 10px;
-  border: 1px solid transparent;
-  background: transparent; color: var(--text-muted);
+  border: none; background: transparent; color: var(--text-muted);
   font-size: 14px; font-weight: 600; cursor: pointer;
-  transition: color var(--tr); text-align: left;
-  position: relative; z-index: 1;
+  transition: background var(--tr), color var(--tr); text-align: left;
 }
-.snav-btn:hover  { color: var(--text); }
-.snav-btn.active { color: var(--accent); }
+.snav-btn:hover  { background: var(--surface-2); color: var(--text); }
+.snav-btn.active {
+  background: var(--accent-light); color: var(--accent);
+  border: 1px solid rgba(124,58,237,0.22);
+}
 
 .sidebar-sep { height: 1px; background: var(--border); margin: 4px 16px; flex-shrink: 0; }
 
@@ -412,21 +399,36 @@
   box-shadow: 0 0 0 2px rgba(124,58,237,0.12);
 }
 .month-label-nav  { flex: 1; text-align: center; font-size: 15px; font-weight: 700; color: var(--text); }
-.view-tabs        {
+.view-tabs {
   display: flex; gap: 4px;
   background: var(--surface-2); padding: 4px; border-radius: 12px;
   border: 1px solid var(--border);
+  position: relative;
 }
-.tab-btn          {
+/* Sliding pill — moves via class */
+.tab-slider {
+  position: absolute;
+  top: 4px; bottom: 4px;
+  border-radius: 8px;
+  background: var(--grad);
+  box-shadow: 0 0 18px rgba(124,58,237,0.4);
+  pointer-events: none;
+  z-index: 0;
+  transition: left 0.30s cubic-bezier(0.35, 1.2, 0.45, 1),
+              width 0.20s ease;
+}
+/* Position per active tab — computed from padding(4px) + btn widths  */
+.tab-slider-0 { left: 4px;  width: calc(33.333% - 5.33px); }
+.tab-slider-1 { left: calc(33.333% + 0px); width: calc(33.333% - 1.33px); }
+.tab-slider-2 { left: calc(66.666% - 2.67px); width: calc(33.333% - 1.33px); }
+.tab-btn {
   padding: 6px 18px; border-radius: 8px; border: none;
   background: transparent; color: var(--text-muted);
   font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: all var(--tr);
+  transition: color var(--tr);
+  position: relative; z-index: 1; flex: 1; text-align: center;
 }
-.tab-btn.active   {
-  background: var(--grad); color: #fff;
-  box-shadow: 0 0 18px rgba(124,58,237,0.4);
-}
+.tab-btn.active { color: #fff; }
 
 /* ── Filter Bar ────────────────────────────────────────── */
 .filter-bar {

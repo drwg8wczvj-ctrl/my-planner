@@ -364,19 +364,12 @@
   box-shadow: 0 1px 0 rgba(255,255,255,0.40) inset, 0 10px 30px rgba(124,58,237,0.40);
 }
 
-/* Sliding nav indicator — glass version */
-.glass .snav-indicator {
-  backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  background: var(--surface);
-  border: 1px solid var(--border);
+/* Tab slider — glass version */
+.glass .tab-slider {
   box-shadow:
-    0 1px 0 var(--reflect-top) inset,
-    0 4px 16px rgba(124,58,237,0.14);
-  transition:
-    top     0.38s cubic-bezier(0.35, 1.2, 0.45, 1),
-    height  0.22s ease,
-    opacity 0.18s ease;
+    0 1px 0 rgba(255,255,255,0.30) inset,
+    0 4px 20px rgba(124,58,237,0.45);
+  transition: left 0.36s cubic-bezier(0.35, 1.2, 0.45, 1), width 0.22s ease;
 }
 
 /* Nav + sidebar buttons */
