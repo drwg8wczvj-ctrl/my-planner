@@ -190,19 +190,32 @@
   padding: 12px 8px;
   display: flex; flex-direction: column; gap: 2px;
   flex-shrink: 0;
+  position: relative;
+}
+.snav-indicator {
+  position: absolute;
+  left: 0; right: 0;
+  background: var(--accent-light);
+  border-radius: 10px;
+  border: 1px solid rgba(124,58,237,0.22);
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    top     0.32s cubic-bezier(0.35, 1.2, 0.45, 1),
+    height  0.20s ease,
+    opacity 0.16s ease;
 }
 .snav-btn {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 11px 12px; border-radius: 10px;
-  border: none; background: transparent; color: var(--text-muted);
+  border: 1px solid transparent;
+  background: transparent; color: var(--text-muted);
   font-size: 14px; font-weight: 600; cursor: pointer;
-  transition: background var(--tr), color var(--tr); text-align: left;
+  transition: color var(--tr); text-align: left;
+  position: relative; z-index: 1;
 }
-.snav-btn:hover  { background: var(--surface-2); color: var(--text); }
-.snav-btn.active {
-  background: var(--accent-light); color: var(--accent);
-  border: 1px solid rgba(124,58,237,0.22);
-}
+.snav-btn:hover  { color: var(--text); }
+.snav-btn.active { color: var(--accent); }
 
 .sidebar-sep { height: 1px; background: var(--border); margin: 4px 16px; flex-shrink: 0; }
 

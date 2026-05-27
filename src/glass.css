@@ -364,19 +364,28 @@
   box-shadow: 0 1px 0 rgba(255,255,255,0.40) inset, 0 10px 30px rgba(124,58,237,0.40);
 }
 
+/* Sliding nav indicator — glass version */
+.glass .snav-indicator {
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 0 var(--reflect-top) inset,
+    0 4px 16px rgba(124,58,237,0.14);
+  transition:
+    top     0.38s cubic-bezier(0.35, 1.2, 0.45, 1),
+    height  0.22s ease,
+    opacity 0.18s ease;
+}
+
 /* Nav + sidebar buttons */
 .glass .snav-btn,
 .glass .sacc-btn {
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: color 0.2s ease, transform 0.2s ease;
 }
 .glass .snav-btn:hover { transform: translateX(2px); }
 .glass .sacc-btn:hover { transform: translateX(1px); }
-
-.glass .snav-btn.active {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.40) inset;
-}
 
 /* TCA action buttons — subtle glass fill */
 .glass .tca {
