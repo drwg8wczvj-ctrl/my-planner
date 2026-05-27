@@ -19,6 +19,7 @@ import {
   Pencil, SkipForward, Sparkles,
 } from "lucide-react";
 import { calculateTaskWeight } from "./utils/taskUtils";
+import StatePulseTransition from "./StatePulseTransition";
 import "./App.css";
 import "./glass.css";
 
@@ -374,6 +375,7 @@ export default function App() {
   const addInputRef  = useRef(null);
   const timelineRef      = useRef(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [isPulsing,       setIsPulsing]       = useState(false);
   const pendingViewRef   = useRef(null);
   const [editingTask, setEditingTask] = useState(null);
   const [draft,       setDraft]       = useState(null);
@@ -1042,10 +1044,14 @@ export default function App() {
     if (v === view) return;
     pendingViewRef.current = v;
     setIsTransitioning(true);
+    setIsPulsing(true);
     setTimeout(() => {
       setView(pendingViewRef.current);
       setIsTransitioning(false);
-    }, 220);
+    }, 160);
+    setTimeout(() => {
+      setIsPulsing(false);
+    }, 500);
   };
 
   const askNORAtoReschedule = (task) => {
@@ -1540,7 +1546,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
     <div className={`app${dark ? " dark" : ""}${theme === "liquid_glass" ? " glass" : ""}`}>
 
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
-      {isTransitioning && <div className="nav-transition-overlay" />}
+      <StatePulseTransition active={isPulsing} />
 
       <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
         <div className="sidebar-top">
