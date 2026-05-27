@@ -953,6 +953,12 @@ export default function App() {
   useEffect(() => { if (addingAt !== null) addInputRef.current?.focus(); }, [addingAt]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatLoading]);
   useEffect(() => { if (chatOpen) chatInputRef.current?.focus(); }, [chatOpen]);
+  useEffect(() => {
+    const el = chatInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+  }, [chatInput]);
   useEffect(() => { setDraft(editingTask ? { ...editingTask } : null); }, [editingTask]);
 
   // Notification scheduling — per-task reminderOffset overrides global reminderMins
@@ -1662,9 +1668,6 @@ Everything else → as short as possible. If nothing notable to add, don't add i
                     )}
                   </div>
                   <div className="ai-priority-actions">
-                    <button className="ai-act-btn ai-act-done" onClick={() => toggleTask(aiFocus.priorityTask.id)}>
-                      <Check size={11} /> Done
-                    </button>
                     <button className="ai-act-btn ai-act-ask" onClick={() => {
                       setChatInput(`What's the best way to approach "${aiFocus.priorityTask.title}" right now?`);
                       setChatOpen(true);
@@ -1826,9 +1829,6 @@ Everything else → as short as possible. If nothing notable to add, don't add i
                             </div>
                             {tp === "task" && !t.completed && (
                               <div className="sc-actions">
-                                <button className="tca tca-done" onClick={() => toggleTask(t.id)}>
-                                  <Check size={10} strokeWidth={3} /> Done
-                                </button>
                                 <button className="tca tca-resched" onClick={() => askNORAtoReschedule(t)}>
                                   <RotateCcw size={10} /> Reschedule
                                 </button>
@@ -2216,10 +2216,6 @@ Everything else → as short as possible. If nothing notable to add, don't add i
                           {/* Action row — tasks only */}
                           {tp === "task" && (
                             <div className="list-task-actions">
-                              <button className={`tca tca-done${t.completed ? " active" : ""}`}
-                                onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
-                                <Check size={10} strokeWidth={3} /> Done
-                              </button>
                               {!t.completed && (
                                 <button className="tca tca-resched"
                                   onClick={(e) => { e.stopPropagation(); askNORAtoReschedule(t); }}>
@@ -2816,10 +2812,6 @@ function TaskChip({ task, group, onToggle, onReschedule, onSkip, onClick }) {
         </span>
       </div>
       <div className="chip-actions">
-        <button className={`tca tca-done${task.completed ? " active" : ""}`}
-          onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}>
-          <Check size={10} strokeWidth={3} /> Done
-        </button>
         {!task.completed && onReschedule && (
           <button className="tca tca-resched"
             onClick={(e) => { e.stopPropagation(); onReschedule(task); }}>
