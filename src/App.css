@@ -2465,6 +2465,7 @@
   to   { transform: translateX(28px); opacity: 0.65; }
 }
 .page-anim {
+  display: flex; flex-direction: column; gap: 16px;
   animation: pageEnter 0.28s cubic-bezier(0.25, 1, 0.35, 1) both;
 }
 .container.page-exiting .page-anim {
