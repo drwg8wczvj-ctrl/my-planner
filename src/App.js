@@ -372,7 +372,9 @@ export default function App() {
   const [addingAt,    setAddingAt]    = useState(null);
   const [addingTitle, setAddingTitle] = useState("");
   const addInputRef  = useRef(null);
-  const timelineRef  = useRef(null);
+  const timelineRef      = useRef(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const pendingViewRef   = useRef(null);
   const [editingTask, setEditingTask] = useState(null);
   const [draft,       setDraft]       = useState(null);
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -1036,6 +1038,16 @@ export default function App() {
   };
   const moveToSlot = (id, h, m) => setTasks((p) => p.map((t) => t.id === id ? { ...t, startHour: h, startMinute: m } : t));
 
+  const navigateTo = (v) => {
+    if (v === view) return;
+    pendingViewRef.current = v;
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setView(pendingViewRef.current);
+      setIsTransitioning(false);
+    }, 220);
+  };
+
   const askNORAtoReschedule = (task) => {
     const daysDeferred = Math.round(
       (new Date(today + "T00:00:00") - new Date(task.date + "T00:00:00")) / 86400000
@@ -1528,6 +1540,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
     <div className={`app${dark ? " dark" : ""}${theme === "liquid_glass" ? " glass" : ""}`}>
 
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+      {isTransitioning && <div className="nav-transition-overlay" />}
 
       <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
         <div className="sidebar-top">
@@ -1541,7 +1554,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
         <nav className="sidebar-nav">
           {[["day","Day View",<CalendarDays size={16} />],["month","Month View",<CalendarDays size={16} />],["list","All Tasks",<List size={16} />],["notes","Notes",<FileText size={16} />],["status","My Status",<Activity size={16} />]].map(([v,label,icon]) => (
             <button key={v} className={`snav-btn${view === v ? " active" : ""}`}
-              onClick={() => { setView(v); setSidebarOpen(false); }}>
+              onClick={() => { navigateTo(v); setSidebarOpen(false); }}>
               {icon} {label}
             </button>
           ))}
@@ -1643,7 +1656,8 @@ Everything else → as short as possible. If nothing notable to add, don't add i
           </div>
         </header>
 
-        <div className="container">
+        <div className={`container${isTransitioning ? " page-exiting" : ""}`}>
+          <div key={view} className="page-anim">
           {view === "day" && (
             <div className="ai-focus-panel">
               <div className="ai-focus-top">
@@ -1715,9 +1729,9 @@ Everything else → as short as possible. If nothing notable to add, don't add i
             </div>
             <div className="view-tabs">
               <div className={`tab-slider tab-slider-${view === "day" ? 0 : view === "month" ? 1 : 2}`} />
-              <button className={`tab-btn${view === "day"   ? " active" : ""}`} onClick={() => setView("day")}>Day</button>
-              <button className={`tab-btn${view === "month" ? " active" : ""}`} onClick={() => setView("month")}>Month</button>
-              <button className={`tab-btn${view === "list"  ? " active" : ""}`} onClick={() => setView("list")}>All</button>
+              <button className={`tab-btn${view === "day"   ? " active" : ""}`} onClick={() => navigateTo("day")}>Day</button>
+              <button className={`tab-btn${view === "month" ? " active" : ""}`} onClick={() => navigateTo("month")}>Month</button>
+              <button className={`tab-btn${view === "list"  ? " active" : ""}`} onClick={() => navigateTo("list")}>All</button>
             </div>
           </div>}
 
@@ -2552,6 +2566,7 @@ Everything else → as short as possible. If nothing notable to add, don't add i
               )}
             </div>
           )}
+          </div>{/* page-anim */}
         </div>
 
         <footer className="app-footer">

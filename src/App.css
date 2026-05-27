@@ -2454,3 +2454,29 @@
   transition: background .15s;
 }
 .nudge-dismiss:hover { background: var(--surface-2); }
+
+/* ── Page transition ── */
+@keyframes pageEnter {
+  from { transform: translateX(-28px); opacity: 0.7; }
+  to   { transform: translateX(0);     opacity: 1;   }
+}
+@keyframes pageExit {
+  from { transform: translateX(0);    opacity: 1;   }
+  to   { transform: translateX(28px); opacity: 0.65; }
+}
+.page-anim {
+  animation: pageEnter 0.28s cubic-bezier(0.25, 1, 0.35, 1) both;
+}
+.container.page-exiting .page-anim {
+  animation: pageExit 0.20s cubic-bezier(0.4, 0, 1, 1) both;
+}
+.nav-transition-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  animation: overlayFade 0.22s ease both;
+}
+@keyframes overlayFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
