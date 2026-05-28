@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
-  Check, ChevronRight, Clock, MessageSquare, X, Send,
+  Check, ChevronLeft, ChevronRight, Clock, MessageSquare, X, Send,
   FileText, Trash2, User, RotateCcw, CalendarDays,
   Flag, Coffee, Bell, Activity, Wind, TrendingUp,
   TrendingDown, Minus, Brain, AlertTriangle,
-  SkipForward, Sparkles, Plus,
-  BarChart2, Zap,
+  SkipForward, Sparkles, Plus, Settings,
+  BarChart2, Zap, List, CheckSquare,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import "./MobileApp.css";
@@ -27,7 +27,9 @@ const fmtDur = (min) => {
 
 // ── Root ─────────────────────────────────────────────────────
 export default function MobileApp({ ctx }) {
-  const [mobileView, setMobileView] = useState("home");
+  const [mobileView, setMobileView] = useState("plan");
+  const [planSubView, setPlanSubView] = useState("day");  // "day" | "month"
+  const [dayMode, setDayMode] = useState("list");          // "list" | "grid"
   const { dark, chatOpen, setChatOpen, editingTask, draft, inAppAlert, setInAppAlert } = ctx;
 
   return (
@@ -36,19 +38,20 @@ export default function MobileApp({ ctx }) {
       <MobileHeader ctx={ctx} />
 
       <main className="mob-main">
-        {mobileView === "home"   && <MobileHome   ctx={ctx} />}
-        {mobileView === "tasks"  && <MobileTasks  ctx={ctx} />}
-        {mobileView === "notes"  && <MobileNotes  ctx={ctx} />}
-        {mobileView === "status" && <MobileStatus ctx={ctx} />}
+        {mobileView === "plan"     && <MobilePlan ctx={ctx} subView={planSubView} setSubView={setPlanSubView} dayMode={dayMode} setDayMode={setDayMode} />}
+        {mobileView === "tasks"    && <MobileTasks ctx={ctx} />}
+        {mobileView === "notes"    && <MobileNotes ctx={ctx} />}
+        {mobileView === "status"   && <MobileStatus ctx={ctx} />}
+        {mobileView === "settings" && <MobileSettings ctx={ctx} />}
       </main>
 
-      {/* Bottom navigation */}
       <nav className="mob-bottom-nav">
         {[
-          ["home",   "Today",  <CalendarDays size={22} />],
-          ["tasks",  "Tasks",  <RotateCcw size={22} />],
-          ["notes",  "Notes",  <FileText size={22} />],
-          ["status", "Me",     <User size={22} />],
+          ["plan",     "Plan",     <CalendarDays size={21} />],
+          ["tasks",    "Tasks",    <CheckSquare size={21} />],
+          ["notes",    "Notes",    <FileText size={21} />],
+          ["status",   "Status",   <Activity size={21} />],
+          ["settings", "Settings", <Settings size={21} />],
         ].map(([v, l, icon]) => (
           <button key={v}
             className={`mob-nav-btn${mobileView === v ? " mob-nav-active" : ""}`}
@@ -59,20 +62,14 @@ export default function MobileApp({ ctx }) {
         ))}
       </nav>
 
-      {/* Floating AI button */}
       <button
         className={`mob-ai-fab${chatOpen ? " fab-open" : ""}`}
         onClick={() => setChatOpen((o) => !o)}>
         {chatOpen ? <X size={22} /> : <Sparkles size={22} />}
       </button>
 
-      {/* Chat overlay */}
       <MobileChat ctx={ctx} />
-
-      {/* Task edit modal */}
       {editingTask && draft && <MobileEditModal ctx={ctx} />}
-
-      {/* In-app notification toast */}
       {inAppAlert && (
         <div className="notif-toast" role="alert">
           <Bell size={18} className="notif-toast-icon" />
@@ -105,7 +102,38 @@ function MobileHeader({ ctx }) {
   );
 }
 
-// ── Home view ────────────────────────────────────────────────
+// ── Plan view (Day / Month) ───────────────────────────────────
+function MobilePlan({ ctx, subView, setSubView, dayMode, setDayMode }) {
+  return (
+    <div className="mob-plan">
+      {/* Sub-view toggle */}
+      <div className="mob-plan-segs">
+        <div className={`mob-seg-pill mob-seg-pill-${subView === "day" ? 0 : 1}`} />
+        <button className={`mob-seg-btn${subView === "day" ? " active" : ""}`} onClick={() => setSubView("day")}>Day</button>
+        <button className={`mob-seg-btn${subView === "month" ? " active" : ""}`} onClick={() => setSubView("month")}>Month</button>
+      </div>
+
+      {subView === "day" && (
+        <>
+          {/* List / Grid toggle inside Day */}
+          <div className="mob-day-mode-row">
+            <button className={`mob-mode-btn${dayMode === "list" ? " active" : ""}`} onClick={() => setDayMode("list")}>
+              <List size={14} /> List
+            </button>
+            <button className={`mob-mode-btn${dayMode === "grid" ? " active" : ""}`} onClick={() => setDayMode("grid")}>
+              <BarChart2 size={14} /> Grid
+            </button>
+          </div>
+          {dayMode === "list" ? <MobileHome ctx={ctx} /> : <MobileGrid ctx={ctx} />}
+        </>
+      )}
+
+      {subView === "month" && <MobileMonth ctx={ctx} />}
+    </div>
+  );
+}
+
+// ── Home view (Day list mode) ────────────────────────────────
 function MobileHome({ ctx }) {
   const {
     todayTasks, today, aiFocus, contextMode, deferredTasks,
@@ -275,6 +303,172 @@ function MobileHome({ ctx }) {
         <Plus size={18} /> Add task
       </button>
 
+    </div>
+  );
+}
+
+// ── Grid view (24h timeline) ─────────────────────────────────
+function MobileGrid({ ctx }) {
+  const { todayTasks, nowObj, toggleTask, setEditingTask } = ctx;
+  const HOURS = Array.from({ length: 24 }, (_, i) => i);
+  const CELL = 64; // px per hour
+  const nowMins = nowObj.getHours() * 60 + nowObj.getMinutes();
+  const gridRef = useRef(null);
+
+  useEffect(() => {
+    if (gridRef.current) {
+      const scrollTo = Math.max(0, (nowMins / 60) * CELL - 120);
+      gridRef.current.scrollTop = scrollTo;
+    }
+  }, []); // eslint-disable-line
+
+  const scheduled = todayTasks.filter((t) => t.startHour != null);
+
+  const fmt = (h) => h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`;
+
+  return (
+    <div className="mob-grid-scroll" ref={gridRef}>
+      <div className="mob-grid-inner" style={{ height: 24 * CELL + 32 }}>
+        {/* Hour rows */}
+        {HOURS.map((h) => (
+          <div key={h} className="mob-grid-hour-row" style={{ top: h * CELL + 16, height: CELL }}>
+            <span className="mob-grid-h-label">{fmt(h)}</span>
+            <div className="mob-grid-h-line" />
+          </div>
+        ))}
+
+        {/* Current time line */}
+        <div className="mob-grid-now-wrap" style={{ top: (nowMins / 60) * CELL + 16 }}>
+          <div className="mob-grid-now-dot" />
+          <div className="mob-grid-now-line" />
+        </div>
+
+        {/* Task blocks */}
+        <div className="mob-grid-blocks">
+          {scheduled.map((t) => {
+            const startMin = t.startHour * 60 + (t.startMinute ?? 0);
+            const dur = t.duration ?? 30;
+            const top = (startMin / 60) * CELL + 16;
+            const height = Math.max(28, (dur / 60) * CELL - 3);
+            const tp = t.type ?? "task";
+            const color = tp === "deadline" ? "#ef4444" : tp === "break" ? "#94a3b8" : "var(--accent)";
+            return (
+              <div key={t.id}
+                className={`mob-grid-block${t.completed ? " mob-gb-done" : ""}`}
+                style={{ top, height, borderLeftColor: color, background: `${color}18` }}
+                onClick={() => setEditingTask(t)}>
+                <span className="mob-gb-title">{t.title || (tp === "break" ? "Break" : "Deadline")}</span>
+                {t.duration && <span className="mob-gb-dur">{fmtDur(t.duration)}</span>}
+                {tp === "task" && (
+                  <button
+                    className={`mob-gb-check${t.completed ? " checked" : ""}`}
+                    onClick={(e) => { e.stopPropagation(); toggleTask(t.id); }}>
+                    {t.completed && <Check size={10} strokeWidth={3} />}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Month / Calendar view ────────────────────────────────────
+function MobileMonth({ ctx }) {
+  const { tasks, today, setEditingTask } = ctx;
+  const [cur, setCur] = useState(() => {
+    const [y, m] = today.split("-");
+    return { year: Number(y), month: Number(m) - 1 };
+  });
+  const [sel, setSel] = useState(today);
+
+  const { year, month } = cur;
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const taskMap = {};
+  tasks.forEach((t) => {
+    if (!taskMap[t.date]) taskMap[t.date] = [];
+    taskMap[t.date].push(t);
+  });
+
+  const shiftMonth = (d) => {
+    setCur(({ year, month }) => {
+      let nm = month + d, ny = year;
+      if (nm < 0) { nm = 11; ny--; }
+      if (nm > 11) { nm = 0; ny++; }
+      return { year: ny, month: nm };
+    });
+  };
+
+  const cells = Array.from({ length: Math.ceil((firstDay + daysInMonth) / 7) * 7 }, (_, i) => {
+    const day = i - firstDay + 1;
+    if (day < 1 || day > daysInMonth) return null;
+    const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return { day, ds, ts: taskMap[ds] || [] };
+  });
+
+  const selTasks = taskMap[sel] || [];
+
+  return (
+    <div className="mob-month-view">
+      <div className="mob-month-nav">
+        <button className="mob-month-nav-btn" onClick={() => shiftMonth(-1)}><ChevronLeft size={20} /></button>
+        <span className="mob-month-title">{MONTHS[month]} {year}</span>
+        <button className="mob-month-nav-btn" onClick={() => shiftMonth(1)}><ChevronRight size={20} /></button>
+      </div>
+
+      <div className="mob-cal-grid">
+        {["Su","Mo","Tu","We","Th","Fr","Sa"].map((d) => (
+          <div key={d} className="mob-cal-dow">{d}</div>
+        ))}
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={i} className="mob-cal-empty" />;
+          const { day, ds, ts } = cell;
+          const isToday = ds === today;
+          const isSel = ds === sel;
+          const hasDl = ts.some((t) => t.type === "deadline");
+          const taskCount = ts.filter((t) => t.type !== "break").length;
+          return (
+            <div key={ds}
+              className={`mob-cal-cell${isToday ? " mob-cal-today" : ""}${isSel ? " mob-cal-sel" : ""}`}
+              onClick={() => setSel(ds)}>
+              <span className="mob-cal-num">{day}</span>
+              <div className="mob-cal-dots">
+                {hasDl && <span className="mob-dot mob-dot-dl" />}
+                {taskCount > 0 && <span className="mob-dot" />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mob-cal-day-panel">
+        <div className="mob-section-title">
+          <CalendarDays size={13} />
+          {sel === today ? "Today" : sel}
+          <span className="mob-cal-task-count">{selTasks.length} item{selTasks.length !== 1 ? "s" : ""}</span>
+        </div>
+        {selTasks.length === 0 ? (
+          <p className="mob-cal-empty-msg">Nothing planned</p>
+        ) : (
+          selTasks.map((t) => {
+            const tp = t.type ?? "task";
+            const color = tp === "deadline" ? "#ef4444" : tp === "break" ? "#94a3b8" : "var(--accent)";
+            return (
+              <div key={t.id} className={`mob-cal-task-row${t.completed ? " done" : ""}`}
+                style={{ borderLeftColor: color }}
+                onClick={() => setEditingTask(t)}>
+                <span className="mob-cal-task-name">{t.title || (tp === "break" ? "Break" : "Deadline")}</span>
+                {t.startHour != null && <span className="mob-cal-task-time">{fmtTime(t.startHour, t.startMinute ?? 0)}</span>}
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
@@ -457,13 +651,32 @@ function MobileStatus({ ctx }) {
     energy, setEnergy, relaxation, setRelaxation,
     momentum, recoveryState, workloadForecast, weekData, weekTrend,
     adaptiveRecs, deferredTasks, askNORAtoReschedule,
-    setChatInput, setChatOpen, doneToday, totalToday, pct, session,
+    setChatInput, setChatOpen, doneToday, totalToday, pct,
+    noraState,
   } = ctx;
 
   const maxWl = Math.max(...workloadForecast.map((d) => d.load), 1);
 
   return (
     <div className="mob-status">
+
+      {/* NORA State */}
+      <div className="mob-status-card mob-nora-card" style={{ borderTop: `3px solid ${noraState.color}` }}>
+        <div className="mob-status-card-title"><Sparkles size={15} /> NORA State</div>
+        <div className="mob-momentum-row">
+          <span className="mob-momentum-dot" style={{ background: noraState.color }} />
+          <span className="mob-momentum-label" style={{ color: noraState.color }}>{noraState.label}</span>
+          <span className="mob-state-conf">{noraState.confidence}</span>
+        </div>
+        <p className="mob-status-desc">{({
+          "peak_focus":        "You're in an ideal state for deep, high-quality work.",
+          "building_momentum": "Momentum is building — keep the streak alive.",
+          "steady_flow":       "Consistent and stable. Good conditions for focused progress.",
+          "high_load":         "High cognitive load. Consider prioritising or delegating.",
+          "recovery_day":      "Your system needs rest. Protect your energy today.",
+          "focus_mode":        "Standard mode. Tackle tasks at a comfortable pace.",
+        }[noraState.key] ?? "NORA is monitoring your state.")}</p>
+      </div>
 
       {/* Wellness */}
       <div className="mob-status-card">
@@ -621,15 +834,89 @@ function MobileStatus({ ctx }) {
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ── Settings view ────────────────────────────────────────────
+function MobileSettings({ ctx }) {
+  const {
+    accountName, setAccountName,
+    dark, setDark,
+    theme, setTheme,
+    reminderMins, setReminderMins,
+    session,
+  } = ctx;
+
+  return (
+    <div className="mob-settings">
+      {/* Profile */}
+      <div className="mob-sett-card">
+        <div className="mob-sett-card-title"><User size={15} /> Profile</div>
+        <div className="mob-sett-avatar-row">
+          <div className="mob-sett-avatar">
+            {(accountName?.trim()?.[0] ?? session?.user?.email?.[0] ?? "U").toUpperCase()}
+          </div>
+          <div className="mob-sett-avatar-info">
+            <span className="mob-sett-display-name">{accountName || "No name set"}</span>
+            <span className="mob-sett-email-sm">{session?.user?.email}</span>
+          </div>
+        </div>
+        <label className="mob-sett-label">Display name</label>
+        <input
+          className="mob-sett-input"
+          value={accountName}
+          onChange={(e) => setAccountName(e.target.value)}
+          placeholder="Your name" />
+      </div>
+
+      {/* Appearance */}
+      <div className="mob-sett-card">
+        <div className="mob-sett-card-title"><Activity size={15} /> Appearance</div>
+        <div className="mob-sett-row">
+          <span className="mob-sett-row-label">Dark mode</span>
+          <button className={`mob-toggle${dark ? " on" : ""}`} onClick={() => setDark((d) => !d)}>
+            <span className="mob-toggle-knob" />
+          </button>
+        </div>
+        <div className="mob-sett-divider" />
+        <div className="mob-sett-row">
+          <span className="mob-sett-row-label">Theme</span>
+        </div>
+        <div className="mob-theme-pills">
+          <button className={`mob-theme-pill${theme === "default" ? " active" : ""}`}
+            onClick={() => setTheme("default")}>Default</button>
+          <button className={`mob-theme-pill${theme === "liquid_glass" ? " active" : ""}`}
+            onClick={() => setTheme("liquid_glass")}>✦ Liquid Glass</button>
+        </div>
+      </div>
+
+      {/* Notifications */}
+      <div className="mob-sett-card">
+        <div className="mob-sett-card-title"><Bell size={15} /> Notifications</div>
+        <div className="mob-sett-row">
+          <span className="mob-sett-row-label">Default reminder</span>
+          <select className="mob-sett-select"
+            value={reminderMins}
+            onChange={(e) => setReminderMins(Number(e.target.value))}>
+            <option value={0}>At start</option>
+            <option value={5}>5 min before</option>
+            <option value={10}>10 min before</option>
+            <option value={15}>15 min before</option>
+            <option value={30}>30 min before</option>
+            <option value={60}>1 hour before</option>
+          </select>
+        </div>
+      </div>
+
       {/* Account */}
-      <div className="mob-status-card mob-account-card">
-        <div className="mob-status-card-title"><User size={15} /> Account</div>
-        <p className="mob-account-email">{session?.user?.email}</p>
+      <div className="mob-sett-card">
+        <div className="mob-sett-card-title"><User size={15} /> Account</div>
+        <p className="mob-sett-email-text">{session?.user?.email}</p>
         <button className="mob-signout-btn" onClick={() => supabase.auth.signOut()}>
           Sign out
         </button>
       </div>
-
     </div>
   );
 }

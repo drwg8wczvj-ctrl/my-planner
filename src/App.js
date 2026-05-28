@@ -1519,8 +1519,9 @@ Everything else → as short as possible. If nothing notable to add, don't add i
   if (isMobile) {
     const mobileCtx = {
       tasks, setTasks, groups, notes, setNotes, session, today, nowObj, dark,
-      accountName, energy, setEnergy, relaxation, setRelaxation,
-      inAppAlert, setInAppAlert, reminderMins,
+      accountName, setAccountName, energy, setEnergy, relaxation, setRelaxation,
+      inAppAlert, setInAppAlert, reminderMins, setReminderMins,
+      setDark, theme, setTheme,
       chatOpen, setChatOpen, chatInput, setChatInput, chatLoading, messages, sendChat,
       editingTask, setEditingTask, draft, setDraft,
       todayTasks, deferredTasks, contextMode, aiFocus,
